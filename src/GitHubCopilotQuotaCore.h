@@ -38,7 +38,6 @@ struct PluginConfig
 
 enum class GitHubTokenSource
 {
-    Environment,
     StoredCredential,
     Config
 };
@@ -128,7 +127,6 @@ struct OAuthTokenResponse
 std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstring& error);
 std::wstring SerializeConfigJson(const PluginConfig& config);
 std::optional<GitHubTokenChoice> ResolveGitHubToken(
-    const std::wstring& env_token,
     const std::wstring& stored_token,
     const PluginConfig& config,
     std::wstring& error);

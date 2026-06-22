@@ -4,11 +4,11 @@
 
 Replace the GitHub Copilot quota plugin's manual-token-only setup with a user-initiated GitHub sign-in flow from the TrafficMonitor plugin options dialog.
 
-The existing token paths remain compatible:
+The token paths are:
 
-- `COPILOT_QUOTA_GITHUB_TOKEN` stays the highest-priority override.
-- `github_token` in `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json` remains a legacy fallback.
-- The new app-managed token is stored in Windows Credential Manager and used between the environment variable and legacy plaintext config.
+- The app-managed token is stored in Windows Credential Manager and is the preferred path.
+- `github_token` in `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json` remains a legacy plaintext fallback.
+- GitHub token environment-variable overrides were removed.
 
 ## User Experience
 
@@ -43,9 +43,8 @@ The quota request keeps the existing VS Code Copilot Chat-compatible headers.
 
 Token lookup order:
 
-1. `COPILOT_QUOTA_GITHUB_TOKEN`
-2. Windows Credential Manager target `TrafficMonitorGitHubCopilotQuota:GitHubOAuth`
-3. Legacy `github_token` in config JSON
+1. Windows Credential Manager target `TrafficMonitorGitHubCopilotQuota:GitHubOAuth`
+2. Legacy `github_token` in config JSON
 
 The fetch result continues clearing `snapshot.config.github_token` so secrets are not retained in the snapshot.
 

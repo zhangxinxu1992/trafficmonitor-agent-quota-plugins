@@ -189,11 +189,6 @@ bool SameDisplayOptions(const githubcopilotquota::DisplayOptions& lhs, const git
 
 std::wstring AuthStatusText()
 {
-    if (!githubcopilotquota::ReadGitHubTokenOverrideFromEnvironment().empty())
-    {
-        return L"Status: TrafficMonitor token override is configured.";
-    }
-
     std::wstring error;
     const auto target = githubcopilotquota::GetGitHubOAuthCredentialTarget();
     const auto stored = githubcopilotquota::ReadCredentialToken(
@@ -998,8 +993,7 @@ public:
         const auto button = ShowOptionsModalDialog(
             parent,
             AuthStatusText(),
-            L"Use GitHub sign-in to store a protected local OAuth token for TrafficMonitor. "
-            L"The TrafficMonitor token override still takes precedence.",
+            L"Use GitHub sign-in to store a protected local OAuth token for TrafficMonitor.",
             *config,
             options_changed);
 

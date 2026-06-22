@@ -70,7 +70,6 @@ struct DeviceLoginResult
 
 std::wstring GetDefaultConfigPath();
 std::wstring GetGitHubOAuthCredentialTarget();
-std::wstring ReadGitHubTokenOverrideFromEnvironment();
 std::optional<std::wstring> ReadCredentialToken(const std::wstring& target, std::wstring& error);
 std::optional<std::wstring> ReadCredentialUsername(const std::wstring& target, std::wstring& error);
 bool WriteCredentialToken(
@@ -94,13 +93,11 @@ DeviceLoginResult RunGitHubDeviceLogin(DeviceCodeCallback device_code_callback, 
 DeviceLoginResult RunGitHubDeviceLogin();
 FetchResult FetchQuotaSnapshotFromConfigJson(
     const std::wstring& config_json,
-    const std::wstring& env_token,
     long long now,
     GitHubHttpRequestCallback request_callback,
     void* request_context);
 FetchResult FetchQuotaSnapshotFromConfigJsonWithStoredToken(
     const std::wstring& config_json,
-    const std::wstring& env_token,
     const std::wstring& stored_token,
     long long now,
     GitHubHttpRequestCallback request_callback,

@@ -62,9 +62,7 @@ The plugin follows the Win-CodexBar Copilot provider approach and queries GitHub
 
 Token lookup:
 
-- Prefer `TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN`.
-- Fall back to legacy `COPILOT_QUOTA_GITHUB_TOKEN` for compatibility.
-- Fall back to the plugin-managed GitHub OAuth token in Windows Credential Manager.
+- Prefer the plugin-managed GitHub OAuth token in Windows Credential Manager.
 - Fall back to optional plaintext `github_token` in `config.json`.
 
 The preferred user setup path is the plugin options dialog:
@@ -77,12 +75,12 @@ The preferred user setup path is the plugin options dialog:
 6. The plugin verifies the token with `GET /user` and `GET /copilot_internal/user`.
 7. The plugin stores the token only after both verification requests succeed.
 
-The options dialog reads the stored credential's `UserName` field and shows `Status: signed in as <login>.` in bold when that verified login is available. `TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN` and legacy `COPILOT_QUOTA_GITHUB_TOKEN` show a generic TrafficMonitor token override status because the plugin does not verify the owner of that override before the user opens options.
+The options dialog reads the stored credential's `UserName` field and shows `Status: signed in as <login>.` in bold when that verified login is available. GitHub token environment-variable overrides are not supported.
 
 Device flow details:
 
 - OAuth client id: `Iv1.b507a08c87ecfe98`
-- The OAuth app name shown by GitHub is bound to this `client_id`; local request text cannot rename it. The plugin's own windows, User-Agent, credential target, and environment variables are TrafficMonitor-scoped.
+- The OAuth app name shown by GitHub is bound to this `client_id`; local request text cannot rename it. The plugin's own windows, User-Agent, and credential target are TrafficMonitor-scoped.
 - Scope: `read:user`
 - Credential Manager target: `TrafficMonitorGitHubCopilotQuota:GitHubOAuth`
 - Credential type: `CRED_TYPE_GENERIC`
@@ -114,7 +112,7 @@ Optional configuration is stored at:
 
 Currently useful optional config keys:
 
-- `github_token`: legacy plaintext fallback token when neither the TrafficMonitor environment variable nor the stored OAuth token is set.
+- `github_token`: legacy plaintext fallback token when the stored OAuth token is not set.
 - `username`: displayed in the tooltip only; no `/user` request is needed for quota fetching.
 - `quota_display`: `remaining` or `used`.
 - `reset_display`: `countdown` or `time`.

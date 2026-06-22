@@ -134,8 +134,6 @@ void VerifyRefreshFailurePath(ITMPlugin* plugin, IPluginItem* item)
 {
     const auto appdata = CreateIsolatedAppDataDir();
     EnvironmentVariableGuard appdata_guard(L"APPDATA", appdata.c_str());
-    EnvironmentVariableGuard scoped_token_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN", nullptr);
-    EnvironmentVariableGuard token_guard(L"COPILOT_QUOTA_GITHUB_TOKEN", nullptr);
     EnvironmentVariableGuard stored_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL", L"1");
 
     plugin->DataRequired();

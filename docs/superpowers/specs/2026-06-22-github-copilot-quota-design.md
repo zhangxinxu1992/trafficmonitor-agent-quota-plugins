@@ -33,8 +33,8 @@ The first version tracks GitHub AI Credits, not legacy Copilot premium requests 
 
 Use GitHub's official REST API for AI Credits usage:
 
-1. Read a GitHub token from `COPILOT_QUOTA_GITHUB_TOKEN`.
-2. If the environment variable is empty, read `github_token` from `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json`. The environment variable is preferred because a token in config is plain text.
+1. Read a GitHub token from the TrafficMonitor plugin-managed Windows Credential Manager entry.
+2. If the stored credential is empty, read the legacy plaintext `github_token` from `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json`. GitHub token environment-variable overrides were removed.
 3. Call `GET https://api.github.com/user` to determine the authenticated username unless the config explicitly provides `username`.
 4. Calculate the usage period:
    - If `billing_day` is configured, derive the current billing cycle start and end dates.
@@ -50,7 +50,7 @@ GitHub's usage endpoint reports consumption. It does not provide a simple per-us
 
 ```json
 {
-  "github_token": "optional-token-when-env-var-is-not-used",
+  "github_token": "optional-legacy-plaintext-token",
   "username": "optional-github-login",
   "plan": "pro",
   "total_credits": 1500,
@@ -127,7 +127,7 @@ The tooltip includes:
 
 ## Error Handling
 
-- Missing token: show `ERR`; tooltip tells the user to set `COPILOT_QUOTA_GITHUB_TOKEN` or config.
+- Missing token: show `ERR`; tooltip tells the user to sign in from TrafficMonitor plugin options or set the legacy `github_token` config fallback.
 - HTTP 401 or 403: show authentication or permission error and mention required `Plan` read permission.
 - Missing allowance config: show `ERR`; tooltip says `plan` or `total_credits` is required.
 - GitHub usage API response without `usageItems`: show parser error.

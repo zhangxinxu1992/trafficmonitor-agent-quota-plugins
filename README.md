@@ -49,9 +49,7 @@ Recommended authentication is the TrafficMonitor plugin options dialog:
 3. The plugin shows the GitHub device code and copies it to the clipboard.
 4. Complete the GitHub browser/device-code sign-in. If GitHub asks for a code, paste the copied code.
 
-The plugin stores the resulting OAuth token in Windows Credential Manager as a protected local credential for TrafficMonitor. The sign-in flow is only started by the user from options; the background quota refresh never opens a browser.
-
-`TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN` is the preferred TrafficMonitor-scoped token override. With that environment variable set, no config file or stored credential is required. The older `COPILOT_QUOTA_GITHUB_TOKEN` name remains supported only as a legacy fallback.
+The plugin stores the resulting OAuth token in Windows Credential Manager as a protected local credential for TrafficMonitor. The sign-in flow is only started by the user from options; the background quota refresh never opens a browser. GitHub token environment-variable overrides are not supported.
 
 Optional configuration is stored at `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json`. Use it only when you want a tooltip username or a legacy plaintext fallback token:
 
@@ -66,7 +64,7 @@ Optional configuration is stored at `%APPDATA%\TrafficMonitorGitHubCopilotQuota\
 
 `quota_display` can be `remaining` or `used`. `reset_display` can be `countdown` or `time`. `show_remaining_credits` controls whether the value includes the remaining credit count such as `1.2kcr`; when the percent is set to `used`, the credit count is still remaining credits. The taskbar sample width follows these options, so hidden credit counts do not reserve extra space.
 
-Plaintext token fallback is still supported for compatibility, but plugin options sign-in or the TrafficMonitor-scoped environment variable is preferred:
+Plaintext token fallback is still supported for compatibility, but plugin options sign-in is preferred:
 
 ```json
 {
@@ -81,7 +79,7 @@ Project-specific implementation notes and known pitfalls are in `docs/implementa
 
 ## Versioning
 
-Both plugin DLLs share one release version in `src/PluginVersion.h`. Bump that version once for each tagged repository release.
+Both plugin DLLs share one release version in `src/PluginVersion.h`. Bump that version once for each tagged repository release, then tag the release as `v<version>`, for example `v1.2.0`.
 
 ## Build
 

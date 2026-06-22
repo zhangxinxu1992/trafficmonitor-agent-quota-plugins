@@ -911,18 +911,11 @@ std::wstring SerializeConfigJson(const PluginConfig& config)
 }
 
 std::optional<GitHubTokenChoice> ResolveGitHubToken(
-    const std::wstring& env_token,
     const std::wstring& stored_token,
     const PluginConfig& config,
     std::wstring& error)
 {
     error.clear();
-
-    const auto trimmed_env_token = Trim(env_token);
-    if (!trimmed_env_token.empty())
-    {
-        return GitHubTokenChoice{trimmed_env_token, GitHubTokenSource::Environment};
-    }
 
     const auto trimmed_stored_token = Trim(stored_token);
     if (!trimmed_stored_token.empty())
@@ -936,7 +929,7 @@ std::optional<GitHubTokenChoice> ResolveGitHubToken(
         return GitHubTokenChoice{trimmed_config_token, GitHubTokenSource::Config};
     }
 
-    error = L"Missing GitHub token. Sign in from TrafficMonitor plugin options, set TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN, or set github_token in TrafficMonitor config.json. Legacy COPILOT_QUOTA_GITHUB_TOKEN is still supported.";
+    error = L"Missing GitHub token. Sign in from TrafficMonitor plugin options or set github_token in TrafficMonitor config.json.";
     return std::nullopt;
 }
 

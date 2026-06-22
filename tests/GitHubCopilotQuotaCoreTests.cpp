@@ -189,49 +189,25 @@ void TestResolvesGitHubTokenPrecedence()
     config.github_token = L" config-token ";
 
     std::wstring error;
-    const auto env_choice = githubcopilotquota::ResolveGitHubToken(L" env-token ", L" stored-token ", config, error);
-    Check(env_choice.has_value(), "env token choice should resolve");
-    Check(env_choice->token == L"env-token", "env token should be trimmed and preferred");
-    Check(env_choice->source == githubcopilotquota::GitHubTokenSource::Environment, "env token source should be reported");
-
-    error.clear();
-    const auto stored_choice = githubcopilotquota::ResolveGitHubToken(L"", L" stored-token ", config, error);
+    const auto stored_choice = githubcopilotquota::ResolveGitHubToken(L" stored-token ", config, error);
     Check(stored_choice.has_value(), "stored token choice should resolve");
     Check(stored_choice->token == L"stored-token", "stored token should be trimmed and preferred over config");
     Check(stored_choice->source == githubcopilotquota::GitHubTokenSource::StoredCredential, "stored token source should be reported");
 
     error.clear();
-    const auto config_choice = githubcopilotquota::ResolveGitHubToken(L"", L"", config, error);
+    const auto config_choice = githubcopilotquota::ResolveGitHubToken(L"", config, error);
     Check(config_choice.has_value(), "config token choice should resolve");
     Check(config_choice->token == L"config-token", "config token should be trimmed");
     Check(config_choice->source == githubcopilotquota::GitHubTokenSource::Config, "config token source should be reported");
 
     config.github_token.clear();
     error.clear();
-    const auto missing_choice = githubcopilotquota::ResolveGitHubToken(L" ", L" ", config, error);
+    const auto missing_choice = githubcopilotquota::ResolveGitHubToken(L" ", config, error);
     Check(!missing_choice.has_value(), "missing token choice should fail");
-    Check(error.find(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN") != std::wstring::npos,
-        "missing token error should mention the TrafficMonitor-scoped token variable");
-    Check(error.find(L"COPILOT_QUOTA_GITHUB_TOKEN") != std::wstring::npos,
-        "missing token error should mention legacy token compatibility");
-}
-
-void TestReadsTrafficMonitorScopedGitHubTokenEnvironmentOverride()
-{
-    EnvironmentVariableGuard scoped_token_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN", L" scoped-token ");
-    EnvironmentVariableGuard legacy_token_guard(L"COPILOT_QUOTA_GITHUB_TOKEN", L"legacy-token");
-
-    Check(githubcopilotquota::ReadGitHubTokenOverrideFromEnvironment() == L"scoped-token",
-        "TrafficMonitor-scoped token environment variable should override legacy token variable");
-}
-
-void TestReadsLegacyGitHubTokenEnvironmentOverride()
-{
-    EnvironmentVariableGuard scoped_token_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN", nullptr);
-    EnvironmentVariableGuard legacy_token_guard(L"COPILOT_QUOTA_GITHUB_TOKEN", L" legacy-token ");
-
-    Check(githubcopilotquota::ReadGitHubTokenOverrideFromEnvironment() == L"legacy-token",
-        "legacy token environment variable should remain supported");
+    Check(error.find(L"TrafficMonitor plugin options") != std::wstring::npos,
+        "missing token error should direct users to plugin options sign-in");
+    Check(error.find(L"environment") == std::wstring::npos && error.find(L"override") == std::wstring::npos,
+        "missing token error should only mention supported token sources");
 }
 
 void TestParsesDeviceCodeResponse()
@@ -326,7 +302,6 @@ void TestFetchUsesStoredTokenBeforeConfigToken()
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
         LR"({"github_token":"config-token"})",
-        L"",
         L"stored-token",
         1782086400,
         FakeGitHubRequest,
@@ -336,25 +311,6 @@ void TestFetchUsesStoredTokenBeforeConfigToken()
     Check(fake.requests.size() == 1, "stored-token fetch should issue one request");
     Check(!fake.requests.empty() && fake.requests.front().authorization == L"token stored-token",
         "stored token should be used before config token");
-}
-
-void TestFetchEnvTokenOverridesStoredToken()
-{
-    FakeGitHubTransport fake;
-    fake.responses.push_back(FakeCopilotInternalResponse());
-
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
-        LR"({"github_token":"config-token"})",
-        L"env-token",
-        L"stored-token",
-        1782086400,
-        FakeGitHubRequest,
-        &fake);
-
-    Check(result.success, "fetch helper should succeed with env token and stored token present");
-    Check(fake.requests.size() == 1, "env-token fetch should issue one request");
-    Check(!fake.requests.empty() && fake.requests.front().authorization == L"token env-token",
-        "env token should override stored token");
 }
 
 void TestRunGitHubDeviceLoginStoresTokenAfterVerification()
@@ -938,7 +894,6 @@ void TestFetchUsesConfigTokenAndClearsSnapshotToken()
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
         LR"({"github_token":"config-token"})",
-        L"",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -961,7 +916,6 @@ void TestFetchRequestHeadersUseCopilotInternalContract()
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
         LR"({"github_token":"config-token"})",
-        L"",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -975,56 +929,39 @@ void TestFetchRequestHeadersUseCopilotInternalContract()
     Check(!fake.requests.empty() && fake.requests.front().editor_plugin_version == L"copilot-chat/0.26.7", "Copilot internal request Editor-Plugin-Version header should match contract");
 }
 
-void TestFetchEnvTokenOverridesConfigToken()
+void TestFetchStoredTokenWorksWithoutConfigFile()
 {
     FakeGitHubTransport fake;
     fake.responses.push_back(FakeCopilotInternalResponse());
 
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
-        LR"({"github_token":"config-token"})",
-        L"env-token",
-        1782086400,
-        FakeGitHubRequest,
-        &fake);
-
-    Check(result.success, "fetch helper should succeed with env token");
-    Check(fake.requests.size() == 1, "Copilot internal mode should issue one request");
-    Check(!fake.requests.empty() && fake.requests.front().authorization == L"token env-token", "env token should override config token");
-}
-
-void TestFetchEnvTokenWorksWithoutConfigAllowance()
-{
-    FakeGitHubTransport fake;
-    fake.responses.push_back(FakeCopilotInternalResponse());
-
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
+    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
         L"",
-        L"env-token",
+        L"stored-token",
         1782086400,
         FakeGitHubRequest,
         &fake);
 
-    Check(result.success, "env token should fetch without plan, total_credits, billing_day, or username config");
-    Check(fake.requests.size() == 1, "config-free env token fetch should issue one Copilot internal request");
+    Check(result.success, "stored credential token should fetch without plan, total_credits, billing_day, or username config");
+    Check(fake.requests.size() == 1, "config-free stored credential fetch should issue one Copilot internal request");
     CheckNear(result.snapshot.quota.total_credits, 300.0, "config-free fetch should use internal entitlement as total");
     CheckNear(result.snapshot.quota.remaining_percent, 80.0, "config-free fetch should use internal percent remaining");
 }
 
-void TestFetchRejectsEnvTokenWithCrLf()
+void TestFetchRejectsStoredTokenWithCrLf()
 {
     FakeGitHubTransport fake;
 
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
+    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
         LR"({"github_token":"config-token","username":"octocat","total_credits":100})",
-        L"env-token\r\nX-Injected: value",
+        L"stored-token\r\nX-Injected: value",
         1782086400,
         FakeGitHubRequest,
         &fake);
 
-    Check(!result.success, "env token with CR/LF should fail fetch helper");
-    Check(result.error == L"GitHub token contains invalid characters.", "env token CR/LF error should be stable and non-secret");
-    Check(result.error.find(L"env-token") == std::wstring::npos, "env token CR/LF error should not echo token");
-    Check(fake.requests.empty(), "env token with CR/LF should be rejected before transport request");
+    Check(!result.success, "stored token with CR/LF should fail fetch helper");
+    Check(result.error == L"GitHub token contains invalid characters.", "stored token CR/LF error should be stable and non-secret");
+    Check(result.error.find(L"stored-token") == std::wstring::npos, "stored token CR/LF error should not echo token");
+    Check(fake.requests.empty(), "stored token with CR/LF should be rejected before transport request");
 }
 
 void TestFetchRejectsConfigTokenWithCrLf()
@@ -1033,7 +970,6 @@ void TestFetchRejectsConfigTokenWithCrLf()
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
         L"{\"github_token\":\"config-token\nX-Injected: value\",\"username\":\"octocat\",\"total_credits\":100}",
-        L"",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -1051,7 +987,6 @@ void TestFetchMissingUsernameCallsUserEndpoint()
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
         LR"({"github_token":"config-token"})",
-        L"",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -1068,7 +1003,6 @@ void TestFetchConfiguredUsernameSkipsUserEndpoint()
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
         LR"({"github_token":"config-token","username":"octocat"})",
-        L"",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -1087,7 +1021,6 @@ void TestFetchAuthErrorsUseStableMessage()
 
         const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
             LR"({"github_token":"config-token"})",
-            L"",
             1782086400,
             FakeGitHubRequest,
             &fake);
@@ -1105,7 +1038,6 @@ void TestFetchNonSuccessHttpStatusIncludesStatus()
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
         LR"({"github_token":"config-token"})",
-        L"",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -1139,8 +1071,6 @@ int main()
 {
     TestParsesConfigWithExplicitAllowance();
     TestResolvesGitHubTokenPrecedence();
-    TestReadsTrafficMonitorScopedGitHubTokenEnvironmentOverride();
-    TestReadsLegacyGitHubTokenEnvironmentOverride();
     TestParsesDeviceCodeResponse();
     TestParsesAccessTokenResponse();
     TestParsesAccessTokenPendingAndSlowDownErrors();
@@ -1176,13 +1106,11 @@ int main()
     TestBuildsUsagePaths();
     TestFetchUsesConfigTokenAndClearsSnapshotToken();
     TestFetchRequestHeadersUseCopilotInternalContract();
-    TestFetchEnvTokenOverridesConfigToken();
     TestFetchUsesStoredTokenBeforeConfigToken();
-    TestFetchEnvTokenOverridesStoredToken();
     TestRunGitHubDeviceLoginStoresTokenAfterVerification();
     TestRunGitHubDeviceLoginBuildsCompleteUrlWhenGitHubOmitsIt();
-    TestFetchEnvTokenWorksWithoutConfigAllowance();
-    TestFetchRejectsEnvTokenWithCrLf();
+    TestFetchStoredTokenWorksWithoutConfigFile();
+    TestFetchRejectsStoredTokenWithCrLf();
     TestFetchRejectsConfigTokenWithCrLf();
     TestFetchMissingUsernameCallsUserEndpoint();
     TestFetchConfiguredUsernameSkipsUserEndpoint();

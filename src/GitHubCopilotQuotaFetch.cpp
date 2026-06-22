@@ -18,8 +18,6 @@ constexpr const wchar_t* kCopilotInternalUserAgent = L"GitHubCopilotChat/0.26.7"
 constexpr const wchar_t* kCopilotEditorVersion = L"vscode/1.96.2";
 constexpr const wchar_t* kCopilotEditorPluginVersion = L"copilot-chat/0.26.7";
 constexpr const wchar_t* kGitHubOAuthCredentialTarget = L"TrafficMonitorGitHubCopilotQuota:GitHubOAuth";
-constexpr const wchar_t* kGitHubTokenEnvVar = L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN";
-constexpr const wchar_t* kLegacyGitHubTokenEnvVar = L"COPILOT_QUOTA_GITHUB_TOKEN";
 constexpr const wchar_t* kSkipStoredCredentialEnvVar = L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL";
 constexpr const wchar_t* kLegacySkipStoredCredentialEnvVar = L"GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL";
 constexpr const wchar_t* kGitHubWebHost = L"github.com";
@@ -564,14 +562,12 @@ std::wstring GetDefaultConfigPath()
 
 FetchResult FetchQuotaSnapshotFromConfigJson(
     const std::wstring& config_json,
-    const std::wstring& env_token,
     long long now,
     GitHubHttpRequestCallback request_callback,
     void* request_context)
 {
     return FetchQuotaSnapshotFromConfigJsonWithStoredToken(
         config_json,
-        env_token,
         L"",
         now,
         request_callback,
@@ -581,17 +577,6 @@ FetchResult FetchQuotaSnapshotFromConfigJson(
 std::wstring GetGitHubOAuthCredentialTarget()
 {
     return kGitHubOAuthCredentialTarget;
-}
-
-std::wstring ReadGitHubTokenOverrideFromEnvironment()
-{
-    const auto scoped_token = Trim(GetEnvVar(kGitHubTokenEnvVar));
-    if (!scoped_token.empty())
-    {
-        return scoped_token;
-    }
-
-    return Trim(GetEnvVar(kLegacyGitHubTokenEnvVar));
 }
 
 std::optional<std::wstring> ReadCredentialToken(const std::wstring& target, std::wstring& error)
@@ -933,7 +918,6 @@ DeviceLoginResult RunGitHubDeviceLogin()
 
 FetchResult FetchQuotaSnapshotFromConfigJsonWithStoredToken(
     const std::wstring& config_json,
-    const std::wstring& env_token,
     const std::wstring& stored_token,
     long long now,
     GitHubHttpRequestCallback request_callback,
@@ -949,7 +933,7 @@ FetchResult FetchQuotaSnapshotFromConfigJsonWithStoredToken(
         return result;
     }
 
-    const auto token_choice = ResolveGitHubToken(env_token, stored_token, *config, result.error);
+    const auto token_choice = ResolveGitHubToken(stored_token, *config, result.error);
     if (!token_choice.has_value())
     {
         return result;
@@ -1036,7 +1020,6 @@ FetchResult FetchQuotaSnapshot()
     FetchResult result;
 
     std::wstring config_json;
-    const auto env_token = ReadGitHubTokenOverrideFromEnvironment();
     std::wstring credential_error;
     const auto skip_stored_credential = !Trim(GetEnvVar(kSkipStoredCredentialEnvVar)).empty()
         || !Trim(GetEnvVar(kLegacySkipStoredCredentialEnvVar)).empty();
@@ -1046,7 +1029,7 @@ FetchResult FetchQuotaSnapshot()
     const auto config_path = GetDefaultConfigPath();
     if (!ReadFileUtf8AsWide(config_path, config_json, result.error))
     {
-        if ((Trim(env_token).empty() && Trim(stored_token).empty()) || result.error.find(L"config not found") == std::wstring::npos)
+        if (Trim(stored_token).empty() || result.error.find(L"config not found") == std::wstring::npos)
         {
             return result;
         }
@@ -1056,7 +1039,6 @@ FetchResult FetchQuotaSnapshot()
     WinHttpGitHubContext context;
     return FetchQuotaSnapshotFromConfigJsonWithStoredToken(
         config_json,
-        env_token,
         stored_token,
         static_cast<long long>(std::time(nullptr)),
         RealGitHubRequest,

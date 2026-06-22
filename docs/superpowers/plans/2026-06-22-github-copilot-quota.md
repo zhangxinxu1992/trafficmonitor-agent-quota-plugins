@@ -21,7 +21,7 @@
 - Create: `src/GitHubCopilotQuotaFetch.h`
   - Fetch result model and public fetch entry point.
 - Create: `src/GitHubCopilotQuotaFetch.cpp`
-  - `%APPDATA%` config loading, `COPILOT_QUOTA_GITHUB_TOKEN` lookup, UTF-8 file read, WinHTTP requests to `api.github.com`, and live snapshot construction.
+  - `%APPDATA%` config loading, Windows Credential Manager token lookup, UTF-8 file read, WinHTTP requests to `api.github.com`, and live snapshot construction.
 - Create: `src/TrafficMonitorGitHubCopilotQuota.cpp`
   - `ITMPlugin` implementation with one item: id `GitHubCopilotQuotaAI`, label `GC:`, value-leading space, tooltip, background refresh.
 - Create: `tests/GitHubCopilotQuotaCoreTests.cpp`
@@ -570,10 +570,10 @@ std::wstring GetDefaultConfigPath()
 
 `FetchQuotaSnapshot()` flow:
 
-1. Read config JSON from `GetDefaultConfigPath()` if the file exists. Missing config file is allowed only when `COPILOT_QUOTA_GITHUB_TOKEN` and a valid allowance source are otherwise available; because allowance is config-backed in v1, missing config should return `GitHub Copilot quota config not found: <path>`.
+1. Read config JSON from `GetDefaultConfigPath()` if the file exists. Missing config file is allowed only when the TrafficMonitor-managed Windows Credential Manager token is available; because allowance is now provided by the Copilot internal response, missing config can be treated as an empty config in that case.
 2. Parse config with `ParseConfigJson`.
-3. Read token from `COPILOT_QUOTA_GITHUB_TOKEN`; if empty, use `config.github_token`.
-4. If token is empty, return `Missing GitHub token. Set COPILOT_QUOTA_GITHUB_TOKEN or github_token in config.json.`.
+3. Read token from Windows Credential Manager; if empty, use the legacy plaintext `config.github_token`.
+4. If token is empty, return `Missing GitHub token. Sign in from TrafficMonitor plugin options or set github_token in TrafficMonitor config.json.`.
 5. Resolve allowance with `ResolveAllowance`.
 6. If `config.username` is empty, call `/user` and parse `login`.
 7. If `config.has_billing_day`, calculate `CalculateBillingPeriod(config.billing_day, std::time(nullptr))` and fetch one daily usage report for each `period.usage_dates`.
@@ -633,7 +633,6 @@ Create `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json` on the test mach
 Then run:
 
 ```powershell
-$env:COPILOT_QUOTA_GITHUB_TOKEN = '<token-with-plan-read>'
 $env:GITHUB_COPILOT_QUOTA_RUN_LIVE_TEST = '1'
 .\build\x64\Release\GitHubCopilotQuotaTests.exe
 ```
@@ -987,7 +986,7 @@ Create `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json`:
 }
 ```
 
-Set `COPILOT_QUOTA_GITHUB_TOKEN` to a GitHub token with user `Plan` read permission. If the environment variable is not set, the plugin can read `github_token` from `config.json`, but that stores the token as plain text.
+Sign in from the TrafficMonitor plugin options so the GitHub OAuth token is stored in Windows Credential Manager. The plugin can still read `github_token` from `config.json` as a legacy plaintext fallback.
 
 Use `total_credits` when the plan allowance is custom:
 
@@ -1033,7 +1032,7 @@ The plugin uses GitHub's official billing usage API for AI Credits:
 - `GET https://api.github.com/user`
 - `GET https://api.github.com/users/{username}/settings/billing/ai_credit/usage`
 
-The token comes from `COPILOT_QUOTA_GITHUB_TOKEN` first, then from `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json` as `github_token`.
+The token comes from the TrafficMonitor-managed Windows Credential Manager entry first, then from `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json` as legacy `github_token`.
 
 The API reports consumed credits. The plugin resolves the allowance from `total_credits` first, then from `plan`:
 

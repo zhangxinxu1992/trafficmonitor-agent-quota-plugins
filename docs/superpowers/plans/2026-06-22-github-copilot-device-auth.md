@@ -22,7 +22,7 @@
 
 ## Task 1: Token Source And Device Flow Parsing
 
-- [ ] Write failing tests in `tests/GitHubCopilotQuotaCoreTests.cpp` for token precedence: env token, stored token, legacy config token, and missing token.
+- [ ] Write failing tests in `tests/GitHubCopilotQuotaCoreTests.cpp` for token precedence: stored token, legacy config token, and missing token.
 - [ ] Write failing tests for parsing GitHub device-code JSON including `verification_uri_complete`.
 - [ ] Write failing tests for parsing access-token success JSON and OAuth error JSON.
 - [ ] Implement minimal structs and helpers in `src/GitHubCopilotQuotaCore.h/.cpp`.
@@ -37,8 +37,8 @@
 
 ## Task 3: Fetch Precedence And Sign-In Orchestration
 
-- [ ] Write a failing test showing `FetchQuotaSnapshotFromConfigJson` uses the stored token when the environment variable is empty.
-- [ ] Write a failing test showing env token overrides stored and config tokens.
+- [ ] Write a failing test showing `FetchQuotaSnapshotFromConfigJson` uses the stored token when no plaintext config token is present.
+- [ ] Write a failing test showing stored tokens override legacy config tokens.
 - [ ] Write a failing test for sign-in orchestration: device-code request, token polling, `/user` verification, `/copilot_internal/user` verification, then token storage.
 - [ ] Implement the smallest fetch/auth orchestration helpers needed by the tests.
 - [ ] Build and run `GitHubCopilotQuotaTests.exe`.
@@ -53,7 +53,7 @@
 
 ## Task 5: Documentation And Verification
 
-- [ ] Update `README.md` with Options sign-in as the recommended path and environment variable as an override.
+- [ ] Update `README.md` with Options sign-in as the recommended path and document that GitHub token environment-variable overrides are not supported.
 - [ ] Update `docs/implementation-notes.md` with Credential Manager target, token precedence, and live-test notes.
 - [ ] Run the full Release x64 verification sequence:
 
