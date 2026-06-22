@@ -16,6 +16,8 @@ The suffix after the percent is the countdown until that quota window resets. Th
 
 The plugin reads the local Codex CLI auth file and calls the same ChatGPT backend usage endpoint used by Win-CodexBar.
 
+Project-specific implementation notes and known pitfalls are in `docs/implementation-notes.md`.
+
 ## Build
 
 ```powershell
