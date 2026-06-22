@@ -270,6 +270,24 @@ void TestParsesUserLogin()
     Check(*login == L"octocat", "login should parse");
 }
 
+void TestDefaultConfigPathUsesAppDataConfigFile()
+{
+    const auto path = githubcopilotquota::GetDefaultConfigPath();
+    const std::wstring suffix = L"TrafficMonitorGitHubCopilotQuota\\config.json";
+
+    Check(path.size() >= suffix.size() && path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0,
+        "default GitHub Copilot quota config path should end with TrafficMonitorGitHubCopilotQuota\\config.json");
+
+    const DWORD appdata_length = GetEnvironmentVariableW(L"APPDATA", nullptr, 0);
+    if (appdata_length > 0)
+    {
+        std::wstring appdata(appdata_length, L'\0');
+        const DWORD written = GetEnvironmentVariableW(L"APPDATA", appdata.data(), appdata_length);
+        appdata.resize(written);
+        Check(path.rfind(appdata, 0) == 0, "default GitHub Copilot quota config path should be under APPDATA");
+    }
+}
+
 void TestFormatsCreditCounts()
 {
     Check(githubcopilotquota::FormatCreditCount(0) == L"0cr", "zero credits should format");
@@ -423,6 +441,7 @@ int main()
     TestRejectsNonFiniteUsageNetQuantity();
     TestRejectsUnquotedWhitespaceGarbageUsageNetQuantity();
     TestParsesUserLogin();
+    TestDefaultConfigPathUsesAppDataConfigFile();
     TestFormatsCreditCounts();
     TestHandlesNonFiniteFormattingAndQuotaMath();
     TestCalculatesRemainingQuota();
