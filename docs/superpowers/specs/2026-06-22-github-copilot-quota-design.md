@@ -90,9 +90,11 @@ Credit count formatting:
 - 1000 credits and above: one decimal `kcr`, for example `1.2kcr`.
 - Remaining credits are clamped to zero for display when usage exceeds the included allowance.
 
-Reset countdown formatting reuses the compact style from the Codex plugin:
+Reset countdown formatting uses a compact monthly style. Multi-day GitHub Copilot values remain day-based rather than collapsing to weeks, so `GC:` output stays consistent with the monthly examples:
 
+- `7d`
 - `12d`
+- `31d`
 - `1d 4h`
 - `3h 15m`
 - `now`

@@ -30,6 +30,40 @@ std::string Trim(const std::string& value)
     return value.substr(first, last - first + 1);
 }
 
+bool IsJsonWhitespace(wchar_t ch)
+{
+    return ch == L' ' || ch == L'\t' || ch == L'\r' || ch == L'\n';
+}
+
+bool IsJsonWhitespace(char ch)
+{
+    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+}
+
+bool HasOnlyTrailingWhitespace(const std::wstring& value, std::size_t start)
+{
+    for (auto index = start; index < value.size(); ++index)
+    {
+        if (!IsJsonWhitespace(value[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool HasOnlyTrailingWhitespace(const std::string& value, std::size_t start)
+{
+    for (auto index = start; index < value.size(); ++index)
+    {
+        if (!IsJsonWhitespace(value[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::wstring ToWide(const std::string& value)
 {
     return std::wstring(value.begin(), value.end());
@@ -211,7 +245,13 @@ std::optional<double> FindJsonDouble(const std::wstring& json, const std::wstrin
 
     try
     {
-        return std::stod(*text);
+        std::size_t parsed{};
+        const auto value = std::stod(*text, &parsed);
+        if (!HasOnlyTrailingWhitespace(*text, parsed))
+        {
+            return std::nullopt;
+        }
+        return value;
     }
     catch (...)
     {
@@ -229,7 +269,13 @@ std::optional<double> FindJsonDouble(const std::string& json, const std::string&
 
     try
     {
-        return std::stod(*text);
+        std::size_t parsed{};
+        const auto value = std::stod(*text, &parsed);
+        if (!HasOnlyTrailingWhitespace(*text, parsed))
+        {
+            return std::nullopt;
+        }
+        return value;
     }
     catch (...)
     {
@@ -247,7 +293,13 @@ std::optional<long long> FindJsonInt64(const std::wstring& json, const std::wstr
 
     try
     {
-        return std::stoll(*text);
+        std::size_t parsed{};
+        const auto value = std::stoll(*text, &parsed);
+        if (!HasOnlyTrailingWhitespace(*text, parsed))
+        {
+            return std::nullopt;
+        }
+        return value;
     }
     catch (...)
     {
@@ -461,16 +513,33 @@ std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstri
     {
         config.plan = Trim(*plan);
     }
-    if (const auto total_credits = FindJsonDouble(json, L"total_credits"))
+    if (FindJsonValueStart(json, L"total_credits").has_value())
     {
+        const auto total_credits = FindJsonDouble(json, L"total_credits");
+        if (!total_credits.has_value())
+        {
+            error = L"GitHub Copilot quota config total_credits must be a valid number.";
+            return std::nullopt;
+        }
         config.total_credits = *total_credits;
     }
-    if (const auto billing_day = FindJsonInt64(json, L"billing_day"))
+    if (FindJsonValueStart(json, L"billing_day").has_value())
     {
+        const auto billing_day = FindJsonInt64(json, L"billing_day");
+        if (!billing_day.has_value())
+        {
+            error = L"GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
+            return std::nullopt;
+        }
         if (*billing_day >= 1 && *billing_day <= 31)
         {
             config.billing_day = static_cast<int>(*billing_day);
             config.has_billing_day = true;
+        }
+        else
+        {
+            error = L"GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
+            return std::nullopt;
         }
     }
 
@@ -527,8 +596,14 @@ std::optional<UsageReport> ParseUsageJson(const std::string& json, std::wstring&
             continue;
         }
 
-        if (const auto net_quantity = FindJsonDouble(item, "netQuantity"))
+        if (FindJsonValueStart(item, "netQuantity").has_value())
         {
+            const auto net_quantity = FindJsonDouble(item, "netQuantity");
+            if (!net_quantity.has_value())
+            {
+                error = L"GitHub usage response contains malformed netQuantity.";
+                return std::nullopt;
+            }
             report.consumed_credits += *net_quantity;
         }
     }

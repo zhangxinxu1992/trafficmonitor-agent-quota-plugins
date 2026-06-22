@@ -48,6 +48,37 @@ void TestParsesConfigWithExplicitAllowance()
     Check(error.empty(), "successful config parse should not set error");
 }
 
+void TestRejectsMalformedConfigTotalCredits()
+{
+    std::wstring error;
+    const auto config = githubcopilotquota::ParseConfigJson(
+        LR"({
+            "username": "octocat",
+            "plan": "pro",
+            "total_credits": "1500abc"
+        })",
+        error);
+
+    Check(!config.has_value(), "malformed total_credits should fail config parsing");
+    Check(!error.empty(), "malformed total_credits should set error");
+}
+
+void TestRejectsFractionalBillingDay()
+{
+    std::wstring error;
+    const auto config = githubcopilotquota::ParseConfigJson(
+        LR"({
+            "username": "octocat",
+            "plan": "pro",
+            "total_credits": 1500,
+            "billing_day": 15.9
+        })",
+        error);
+
+    Check(!config.has_value(), "fractional billing_day should fail config parsing");
+    Check(!error.empty(), "fractional billing_day should set error");
+}
+
 void TestResolvesAllowanceFromPlan()
 {
     githubcopilotquota::PluginConfig config;
@@ -110,6 +141,22 @@ void TestParsesUsageReport()
     Check(error.empty(), "successful usage parse should not set error");
 }
 
+void TestRejectsMalformedUsageNetQuantity()
+{
+    std::wstring error;
+    const auto usage = githubcopilotquota::ParseUsageJson(
+        R"({
+            "user": "octocat",
+            "usageItems": [
+                { "product": "Copilot AI Credits", "sku": "AI Credit", "netQuantity": "7.25cr" }
+            ]
+        })",
+        error);
+
+    Check(!usage.has_value(), "malformed netQuantity should fail usage parsing");
+    Check(!error.empty(), "malformed netQuantity should set error");
+}
+
 void TestParsesUserLogin()
 {
     std::wstring error;
@@ -153,6 +200,15 @@ void TestFormatsQuotaValue()
 
     Check(githubcopilotquota::FormatQuotaValue(quota, reset, now) == L" 82% 1.2kcr 12d", "quota value should include leading space and reset");
     Check(githubcopilotquota::FormatQuotaValue(quota, 0, now) == L" 82% 1.2kcr", "quota value should omit missing reset");
+}
+
+void TestFormatsMonthlyResetCountdownInDays()
+{
+    const long long now = 1782086400;
+
+    Check(githubcopilotquota::FormatResetCountdown(now + 7 * 24 * 60 * 60, now) == L"7d", "7-day monthly reset should stay day-based");
+    Check(githubcopilotquota::FormatResetCountdown(now + 12 * 24 * 60 * 60, now) == L"12d", "12-day monthly reset should stay day-based");
+    Check(githubcopilotquota::FormatResetCountdown(now + 31 * 24 * 60 * 60, now) == L"31d", "31-day monthly reset should stay day-based");
 }
 
 void TestCalculatesBillingPeriod()
@@ -230,15 +286,19 @@ void TestLiveFetchWhenRequested()
 int main()
 {
     TestParsesConfigWithExplicitAllowance();
+    TestRejectsMalformedConfigTotalCredits();
+    TestRejectsFractionalBillingDay();
     TestResolvesAllowanceFromPlan();
     TestExplicitAllowanceOverridesPlan();
     TestRejectsMissingAllowance();
     TestParsesUsageReport();
+    TestRejectsMalformedUsageNetQuantity();
     TestParsesUserLogin();
     TestFormatsCreditCounts();
     TestCalculatesRemainingQuota();
     TestClampsOverage();
     TestFormatsQuotaValue();
+    TestFormatsMonthlyResetCountdownInDays();
     TestCalculatesBillingPeriod();
     TestCalculatesBillingPeriodBeforeBillingDay();
     TestCalculatesBillingPeriodWithShorterMonth();

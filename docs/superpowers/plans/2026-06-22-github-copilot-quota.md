@@ -464,7 +464,7 @@ Implement the remaining functions to satisfy the test expectations exactly:
 - `ParseAuthenticatedUserJson` returns `login` or error `GitHub user response does not contain login.`.
 - `FormatPercent` rounds half-up and clamps negative/NaN to zero.
 - `FormatCreditCount` rounds to whole `cr` under 1000 and uses one decimal `kcr` for 1000 or greater.
-- `FormatResetCountdown` matches `codexquota::FormatResetCountdown`.
+- `FormatResetCountdown` uses the compact GitHub Copilot monthly countdown contract: multi-day values stay day-based, including `7d`, `12d`, and `31d`, instead of collapsing to Codex-style week values.
 - `FormatQuotaValue` returns a value-leading-space string.
 - `BuildUsagePath` and `BuildMonthlyUsagePath` use decimal month/day values without zero padding.
 - Date calculations use UTC. On Windows, use `_mkgmtime` for UTC timestamps.
