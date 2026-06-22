@@ -251,6 +251,10 @@ std::optional<double> FindJsonDouble(const std::wstring& json, const std::wstrin
         {
             return std::nullopt;
         }
+        if (!std::isfinite(value))
+        {
+            return std::nullopt;
+        }
         return value;
     }
     catch (...)
@@ -272,6 +276,10 @@ std::optional<double> FindJsonDouble(const std::string& json, const std::string&
         std::size_t parsed{};
         const auto value = std::stod(*text, &parsed);
         if (!HasOnlyTrailingWhitespace(*text, parsed))
+        {
+            return std::nullopt;
+        }
+        if (!std::isfinite(value))
         {
             return std::nullopt;
         }
@@ -630,11 +638,11 @@ std::optional<std::wstring> ParseAuthenticatedUserJson(const std::string& json, 
 
 Quota CalculateQuota(double total_credits, double consumed_credits)
 {
-    if (std::isnan(total_credits) || total_credits < 0.0)
+    if (!std::isfinite(total_credits) || total_credits < 0.0)
     {
         total_credits = 0.0;
     }
-    if (std::isnan(consumed_credits) || consumed_credits < 0.0)
+    if (!std::isfinite(consumed_credits) || consumed_credits < 0.0)
     {
         consumed_credits = 0.0;
     }
@@ -709,7 +717,7 @@ std::wstring BuildMonthlyUsagePath(const std::wstring& username, int year, int m
 
 std::wstring FormatCreditCount(double credits)
 {
-    if (std::isnan(credits) || credits < 0.0)
+    if (!std::isfinite(credits) || credits < 0.0)
     {
         credits = 0.0;
     }
@@ -728,7 +736,7 @@ std::wstring FormatCreditCount(double credits)
 
 std::wstring FormatPercent(double percent)
 {
-    if (std::isnan(percent) || percent < 0.0)
+    if (!std::isfinite(percent) || percent < 0.0)
     {
         percent = 0.0;
     }

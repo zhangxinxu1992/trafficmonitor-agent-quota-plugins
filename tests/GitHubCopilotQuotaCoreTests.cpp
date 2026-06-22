@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -61,6 +62,33 @@ void TestRejectsMalformedConfigTotalCredits()
 
     Check(!config.has_value(), "malformed total_credits should fail config parsing");
     Check(!error.empty(), "malformed total_credits should set error");
+}
+
+void TestRejectsNonFiniteConfigTotalCredits()
+{
+    std::wstring nan_error;
+    const auto nan_config = githubcopilotquota::ParseConfigJson(
+        LR"({
+            "username": "octocat",
+            "plan": "pro",
+            "total_credits": "nan"
+        })",
+        nan_error);
+
+    Check(!nan_config.has_value(), "nan total_credits should fail config parsing");
+    Check(!nan_error.empty(), "nan total_credits should set error");
+
+    std::wstring inf_error;
+    const auto inf_config = githubcopilotquota::ParseConfigJson(
+        LR"({
+            "username": "octocat",
+            "plan": "pro",
+            "total_credits": "inf"
+        })",
+        inf_error);
+
+    Check(!inf_config.has_value(), "inf total_credits should fail config parsing");
+    Check(!inf_error.empty(), "inf total_credits should set error");
 }
 
 void TestRejectsUnquotedWhitespaceGarbageTotalCredits()
@@ -188,6 +216,35 @@ void TestRejectsMalformedUsageNetQuantity()
     Check(!error.empty(), "malformed netQuantity should set error");
 }
 
+void TestRejectsNonFiniteUsageNetQuantity()
+{
+    std::wstring nan_error;
+    const auto nan_usage = githubcopilotquota::ParseUsageJson(
+        R"({
+            "user": "octocat",
+            "usageItems": [
+                { "product": "Copilot AI Credits", "sku": "AI Credit", "netQuantity": "nan" }
+            ]
+        })",
+        nan_error);
+
+    Check(!nan_usage.has_value(), "nan netQuantity should fail usage parsing");
+    Check(!nan_error.empty(), "nan netQuantity should set error");
+
+    std::wstring inf_error;
+    const auto inf_usage = githubcopilotquota::ParseUsageJson(
+        R"({
+            "user": "octocat",
+            "usageItems": [
+                { "product": "Copilot AI Credits", "sku": "AI Credit", "netQuantity": "inf" }
+            ]
+        })",
+        inf_error);
+
+    Check(!inf_usage.has_value(), "inf netQuantity should fail usage parsing");
+    Check(!inf_error.empty(), "inf netQuantity should set error");
+}
+
 void TestRejectsUnquotedWhitespaceGarbageUsageNetQuantity()
 {
     std::wstring error;
@@ -219,6 +276,26 @@ void TestFormatsCreditCounts()
     Check(githubcopilotquota::FormatCreditCount(950) == L"950cr", "under 1000 credits should use cr");
     Check(githubcopilotquota::FormatCreditCount(1200) == L"1.2kcr", "1000+ credits should use kcr");
     Check(githubcopilotquota::FormatCreditCount(20000) == L"20.0kcr", "large credits should keep one decimal");
+}
+
+void TestHandlesNonFiniteFormattingAndQuotaMath()
+{
+    const auto infinity = std::numeric_limits<double>::infinity();
+
+    Check(githubcopilotquota::FormatCreditCount(infinity) == L"0cr", "infinite credits should format as zero credits");
+    Check(githubcopilotquota::FormatCreditCount(-infinity) == L"0cr", "negative infinite credits should format as zero credits");
+    Check(githubcopilotquota::FormatPercent(infinity) == L"0%", "infinite percent should format as zero percent");
+    Check(githubcopilotquota::FormatPercent(-infinity) == L"0%", "negative infinite percent should format as zero percent");
+
+    const auto quota_with_infinite_total = githubcopilotquota::CalculateQuota(infinity, 1.0);
+    CheckNear(quota_with_infinite_total.total_credits, 0.0, "infinite total credits should clamp to zero");
+    Check(std::isfinite(quota_with_infinite_total.remaining_credits), "infinite total should not produce non-finite remaining credits");
+    Check(std::isfinite(quota_with_infinite_total.remaining_percent), "infinite total should not produce non-finite remaining percent");
+
+    const auto quota_with_infinite_consumed = githubcopilotquota::CalculateQuota(1500.0, infinity);
+    CheckNear(quota_with_infinite_consumed.consumed_credits, 0.0, "infinite consumed credits should clamp to zero");
+    Check(std::isfinite(quota_with_infinite_consumed.remaining_credits), "infinite consumed should not produce non-finite remaining credits");
+    Check(std::isfinite(quota_with_infinite_consumed.remaining_percent), "infinite consumed should not produce non-finite remaining percent");
 }
 
 void TestCalculatesRemainingQuota()
@@ -334,6 +411,7 @@ int main()
 {
     TestParsesConfigWithExplicitAllowance();
     TestRejectsMalformedConfigTotalCredits();
+    TestRejectsNonFiniteConfigTotalCredits();
     TestRejectsUnquotedWhitespaceGarbageTotalCredits();
     TestRejectsFractionalBillingDay();
     TestRejectsUnquotedWhitespaceGarbageBillingDay();
@@ -342,9 +420,11 @@ int main()
     TestRejectsMissingAllowance();
     TestParsesUsageReport();
     TestRejectsMalformedUsageNetQuantity();
+    TestRejectsNonFiniteUsageNetQuantity();
     TestRejectsUnquotedWhitespaceGarbageUsageNetQuantity();
     TestParsesUserLogin();
     TestFormatsCreditCounts();
+    TestHandlesNonFiniteFormattingAndQuotaMath();
     TestCalculatesRemainingQuota();
     TestClampsOverage();
     TestFormatsQuotaValue();
