@@ -6,10 +6,10 @@ Build a x64 TrafficMonitor plugin DLL that shows the user's Codex quota percenta
 
 The plugin exposes two display items:
 
-- `5h:`: percentage of the Codex 5-hour primary rate window plus reset information.
-- `7d:`: percentage of the Codex 7-day secondary rate window plus reset information.
+- `CX 5h:`: percentage of the Codex 5-hour primary rate window plus reset information.
+- `CX 7d:`: percentage of the Codex 7-day secondary rate window plus reset information.
 
-Values use compact text, for example `5h: 76% 42m` or `7d: 90% 6d 1h`. By default the percentage is remaining quota and the suffix is the countdown until that quota window resets. The user can switch the percentage to used quota and the reset suffix to local reset time. The taskbar value text starts with a regular space so spacing remains visible after TrafficMonitor trims plugin-label edges. `GetItemValueSampleText()` follows the current display mode: countdown mode uses compact samples such as ` 100% 4h 59m` or ` 100% 6d 23h`, and reset-time mode reserves enough width for values such as ` 100% 12-31 23:59`.
+Values use compact text, for example `CX 5h: 76% 42m` or `CX 7d: 90% 6d 1h`. By default the percentage is remaining quota and the suffix is the countdown until that quota window resets. The user can switch the percentage to used quota and the reset suffix to local reset time. The taskbar value text starts with a regular space so spacing remains visible after TrafficMonitor trims plugin-label edges. `GetItemValueSampleText()` follows the current display mode: countdown mode uses compact samples such as ` 100% 4h 59m` or ` 100% 6d 23h`, and reset-time mode reserves enough width for values such as ` 100% 12-31 23:59`.
 
 ## Data Source
 

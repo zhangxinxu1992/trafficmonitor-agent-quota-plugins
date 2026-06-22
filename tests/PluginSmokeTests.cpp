@@ -276,7 +276,7 @@ int main()
         {
             Check(std::wstring(five_hour->GetItemId()) == L"CodexQuota5h", "5h item id should match");
             Check(std::wstring(five_hour->GetItemName()) == L"TrafficMonitor Codex 5h", "5h item name should match");
-            Check(std::wstring(five_hour->GetItemLableText()) == L"5h:", "5h label should avoid trim-prone whitespace");
+            Check(std::wstring(five_hour->GetItemLableText()) == L"CX 5h:", "5h label should use the CX prefix");
             Check(std::wstring(five_hour->GetItemValueSampleText()) == L" 100% 4h 59m", "5h sample should follow countdown display config");
             Check(std::wstring(five_hour->GetItemValueText()) == L" ...", "5h initial value should include visible spacing before loading");
         }
@@ -284,7 +284,7 @@ int main()
         {
             Check(std::wstring(weekly->GetItemId()) == L"CodexQuotaWeek", "weekly item id should match");
             Check(std::wstring(weekly->GetItemName()) == L"TrafficMonitor Codex Week", "weekly item name should match");
-            Check(std::wstring(weekly->GetItemLableText()) == L"7d:", "weekly label should avoid trim-prone whitespace");
+            Check(std::wstring(weekly->GetItemLableText()) == L"CX 7d:", "weekly label should use the CX prefix");
             Check(std::wstring(weekly->GetItemValueSampleText()) == L" 100% 6d 23h", "weekly sample should follow countdown display config");
             Check(std::wstring(weekly->GetItemValueText()) == L" ...", "weekly initial value should include visible spacing before loading");
         }

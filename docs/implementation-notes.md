@@ -129,17 +129,17 @@ Important: `config.ini` is GBK encoded on this machine. Use code page 936 when e
 
 The taskbar items are:
 
-- `CodexQuota5h` with label `5h:`
-- `CodexQuotaWeek` with label `7d:`
+- `CodexQuota5h` with label `CX 5h:`
+- `CodexQuotaWeek` with label `CX 7d:`
 
-The weekly label intentionally uses `7d:` instead of `W:` because it visually matches `5h:` better and describes the API's 7-day secondary window.
+Codex has no official short abbreviation in the referenced OpenAI docs. The labels use `CX` as this plugin's compact Codex prefix.
 
 The value text starts with one regular space:
 
-- label `5h:` plus value ` 69% 42m` displays as `5h: 69% 42m`
-- label `7d:` plus value ` 89% 6d 1h` displays as `7d: 89% 6d 1h`
+- label `CX 5h:` plus value ` 69% 42m` displays as `CX 5h: 69% 42m`
+- label `CX 7d:` plus value ` 89% 6d 1h` displays as `CX 7d: 89% 6d 1h`
 
-Do not move that space into the label. TrafficMonitor trims ordinary whitespace at the leading and trailing edges of plugin labels, so label strings such as `5h: ` or ` 5h: ` do not reliably show visible spacing.
+Do not move that space into the label. TrafficMonitor trims ordinary whitespace at the leading and trailing edges of plugin labels, so label strings such as `CX 5h: ` or ` CX 5h:` do not reliably show visible spacing.
 
 `GetItemValueSampleText()` follows the current display options so TrafficMonitor does not reserve width for hidden fields. Codex countdown samples:
 
@@ -206,8 +206,8 @@ Important: `config.ini` is GBK encoded on this machine. Use code page 936 when e
 Expected cached labels:
 
 ```ini
-CodexQuota5h = 5h:
-CodexQuotaWeek = 7d:
+CodexQuota5h = CX 5h:
+CodexQuotaWeek = CX 7d:
 ```
 
 The visible colon spacing is provided by the value text, not this cache.

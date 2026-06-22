@@ -7,13 +7,13 @@ TrafficMonitor project.
 
 Display items:
 
-- `5h:`: 5-hour Codex window quota plus reset information.
-- `7d:`: 7-day Codex window quota plus reset information.
+- `CX 5h:`: 5-hour Codex window quota plus reset information.
+- `CX 7d:`: 7-day Codex window quota plus reset information.
 
 Example taskbar values:
 
-- `5h: 69% 42m`
-- `7d: 89% 6d 1h`
+- `CX 5h: 69% 42m`
+- `CX 7d: 89% 6d 1h`
 
 By default the percent is remaining quota and the suffix is the countdown until that quota window resets. The displayed value includes a leading space because TrafficMonitor trims ordinary whitespace at the edges of plugin labels. The plugin reserves width from the current display mode: countdown mode uses compact countdown samples, while reset-time mode reserves enough room for values such as `12-31 23:59`.
 

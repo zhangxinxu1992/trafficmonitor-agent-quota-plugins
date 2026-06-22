@@ -15,9 +15,9 @@ Read `README.md`, `docs/design.md`, and `docs/implementation-notes.md` before ch
 
 - Default to showing remaining quota; the plugin options can switch the display to used quota.
 - Expose two display items:
-  - `5h:` for the Codex 5-hour primary window.
-  - `7d:` for the Codex 7-day secondary window.
-- Default to reset countdowns in the value, for example `5h: 69% 42m` and `7d: 89% 6d 1h`; the plugin options can switch this to local reset time.
+  - `CX 5h:` for the Codex 5-hour primary window.
+  - `CX 7d:` for the Codex 7-day secondary window.
+- Default to reset countdowns in the value, for example `CX 5h: 69% 42m` and `CX 7d: 89% 6d 1h`; the plugin options can switch this to local reset time.
 - Put the visible space after the colon at the start of the value text, not at the edge of the label. TrafficMonitor trims ordinary whitespace at plugin-label edges.
 
 ## Known Pitfalls

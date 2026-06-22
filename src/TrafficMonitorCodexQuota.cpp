@@ -597,7 +597,7 @@ public:
 
     const wchar_t* GetItemLableText() const override
     {
-        return m_kind == WindowKind::FiveHour ? L"5h:" : L"7d:";
+        return m_kind == WindowKind::FiveHour ? L"CX 5h:" : L"CX 7d:";
     }
 
     const wchar_t* GetItemValueText() const override;
