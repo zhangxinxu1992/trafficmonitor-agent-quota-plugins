@@ -1,6 +1,7 @@
 #include "PluginInterface.h"
 #include "GitHubCopilotQuotaCore.h"
 #include "GitHubCopilotQuotaFetch.h"
+#include "PluginVersion.h"
 
 #include <Windows.h>
 #include <commctrl.h>
@@ -961,7 +962,7 @@ public:
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
-            return L"1.2.0";
+            return kTrafficMonitorQuotaPluginVersion;
         case TMI_URL:
             return L"";
         default:

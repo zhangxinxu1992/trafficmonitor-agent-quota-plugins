@@ -1,4 +1,5 @@
 #include "PluginInterface.h"
+#include "../src/PluginVersion.h"
 
 #include <Windows.h>
 #include <cstring>
@@ -166,7 +167,7 @@ int main()
     {
         Check(plugin->GetAPIVersion() >= 7, "plugin API version should support OnInitialize");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_NAME)) == L"TrafficMonitor Codex Quota", "plugin name should match");
-        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_VERSION)) == L"1.2.0", "plugin version should match the unified release version");
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_VERSION)) == kTrafficMonitorQuotaPluginVersion, "plugin version should match the unified release version");
         {
             EnvironmentVariableGuard options_guard(L"TRAFFICMONITOR_CODEX_QUOTA_OPTIONS_SMOKE_TEST", L"1");
             Check(plugin->ShowOptionsDialog(nullptr) == ITMPlugin::OR_OPTION_UNCHANGED,

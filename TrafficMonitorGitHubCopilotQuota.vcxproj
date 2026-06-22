@@ -78,6 +78,7 @@
     <ClInclude Include="include\PluginInterface.h" />
     <ClInclude Include="src\GitHubCopilotQuotaCore.h" />
     <ClInclude Include="src\GitHubCopilotQuotaFetch.h" />
+    <ClInclude Include="src\PluginVersion.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

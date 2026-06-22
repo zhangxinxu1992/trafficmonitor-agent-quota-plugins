@@ -1,6 +1,7 @@
 #include "PluginInterface.h"
 #include "CodexQuotaCore.h"
 #include "CodexQuotaFetch.h"
+#include "PluginVersion.h"
 
 #include <Windows.h>
 
@@ -668,7 +669,7 @@ public:
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
-            return L"1.2.0";
+            return kTrafficMonitorQuotaPluginVersion;
         case TMI_URL:
             return L"";
         default:

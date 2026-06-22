@@ -79,6 +79,10 @@ The plugin uses the same Copilot internal quota endpoint pattern as Win-CodexBar
 
 Project-specific implementation notes and known pitfalls are in `docs/implementation-notes.md`.
 
+## Versioning
+
+Both plugin DLLs share one release version in `src/PluginVersion.h`. Bump that version once for each tagged repository release.
+
 ## Build
 
 ```powershell
