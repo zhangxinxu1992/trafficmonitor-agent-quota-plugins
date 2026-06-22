@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: windows-2025
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Check tag matches plugin version
+        shell: pwsh
+        run: |
+          $versionHeader = Get-Content .\src\PluginVersion.h -Raw
+          if ($versionHeader -notmatch 'kTrafficMonitorQuotaPluginVersion\[\]\s*=\s*L"([^"]+)"') {
+            throw 'Could not read plugin version from src/PluginVersion.h.'
+          }
+
+          $version = $Matches[1]
+          $expectedTag = "v$version"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "Tag '$env:GITHUB_REF_NAME' does not match plugin version '$version'. Use tag '$expectedTag'."
+          }
+
+      - name: Build Release x64 plugins
+        shell: pwsh
+        run: |
+          msbuild .\TrafficMonitorCodexQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          msbuild .\TrafficMonitorGitHubCopilotQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package plugins
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $packageDir = Join-Path $env:RUNNER_TEMP 'trafficmonitor-codex-quota-plugin'
+          $asset = "trafficmonitor-codex-quota-plugin-$tag.zip"
+
+          New-Item -ItemType Directory -Force $packageDir | Out-Null
+          Copy-Item .\build\x64\Release\TrafficMonitorCodexQuota.dll $packageDir
+          Copy-Item .\build\x64\Release\TrafficMonitorGitHubCopilotQuota.dll $packageDir
+          Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $asset -Force
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $asset = "trafficmonitor-codex-quota-plugin-$tag.zip"
+          $title = "TrafficMonitor Codex Quota Plugin $tag"
+
+          gh release view $tag *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+            gh release upload $tag $asset --clobber
+          } else {
+            gh release create $tag $asset --title $title --generate-notes
+          }
+
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
