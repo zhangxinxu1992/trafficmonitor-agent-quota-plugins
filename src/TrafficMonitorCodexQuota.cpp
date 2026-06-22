@@ -665,13 +665,13 @@ public:
         case TMI_DESCRIPTION:
             return L"Displays remaining Codex 5-hour and weekly quota percentage in TrafficMonitor.";
         case TMI_AUTHOR:
-            return L"OpenAI Codex";
+            return L"zhangxinxu";
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
             return kTrafficMonitorQuotaPluginVersion;
         case TMI_URL:
-            return L"";
+            return L"https://github.com/zhangxinxu1992/trafficmonitor-codex-quota-plugin";
         default:
             return L"";
         }
@@ -686,12 +686,6 @@ public:
 
     OptionReturn ShowOptionsDialog(void* hParent) override
     {
-        wchar_t flag[8]{};
-        if (GetEnvironmentVariableW(L"TRAFFICMONITOR_CODEX_QUOTA_OPTIONS_SMOKE_TEST", flag, 8) != 0)
-        {
-            return OR_OPTION_UNCHANGED;
-        }
-
         std::wstring error;
         auto config = LoadCodexConfig(error);
         if (!config.has_value())

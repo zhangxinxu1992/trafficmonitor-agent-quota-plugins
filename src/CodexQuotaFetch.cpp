@@ -1,4 +1,5 @@
 #include "CodexQuotaFetch.h"
+#include "PluginVersion.h"
 
 #include <Windows.h>
 #include <winhttp.h>
@@ -265,8 +266,9 @@ FetchResult FetchUsageSnapshot()
         return result;
     }
 
+    const auto user_agent = L"TrafficMonitorCodexQuota/" + std::wstring(kTrafficMonitorQuotaPluginVersion);
     HttpHandle session(WinHttpOpen(
-        L"TrafficMonitorCodexQuota/1.0",
+        user_agent.c_str(),
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS,

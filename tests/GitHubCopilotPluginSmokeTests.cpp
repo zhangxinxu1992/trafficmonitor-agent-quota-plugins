@@ -130,33 +130,6 @@ void PrepareDisplayConfig(const std::wstring& appdata)
         "}\n");
 }
 
-void VerifyRefreshFailurePath(ITMPlugin* plugin, IPluginItem* item)
-{
-    const auto appdata = CreateIsolatedAppDataDir();
-    EnvironmentVariableGuard appdata_guard(L"APPDATA", appdata.c_str());
-    EnvironmentVariableGuard stored_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL", L"1");
-
-    plugin->DataRequired();
-
-    std::wstring value;
-    for (int attempt = 0; attempt < 50; ++attempt)
-    {
-        value = item->GetItemValueText();
-        if (value == L" ERR")
-        {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    Check(value == L" ERR", "refresh failure should show ERR without a previous snapshot");
-
-    const std::wstring tooltip(plugin->GetTooltipInfo());
-    Check(Contains(tooltip, L"Last refresh status: failed"), "tooltip should report a failed refresh");
-    Check(Contains(tooltip, L"No successful refresh yet."), "tooltip should report no successful refresh after first failure");
-    Check(!Contains(tooltip, L"Waiting for first refresh."), "tooltip should not keep claiming it is waiting after first failure");
-}
-
 struct FindChildByTextContext
 {
     const wchar_t* text{};
@@ -241,9 +214,6 @@ int ScaleForDpi(int value, int dpi)
 
 void VerifyOptionsDialogUsesCompactLayout(ITMPlugin* plugin)
 {
-    EnvironmentVariableGuard scoped_options_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_OPTIONS_SMOKE_TEST", nullptr);
-    EnvironmentVariableGuard legacy_options_guard(L"GITHUB_COPILOT_QUOTA_OPTIONS_SMOKE_TEST", nullptr);
-
     std::atomic<bool> finished{false};
     std::atomic<DWORD> dialog_thread_id{0};
     std::thread dialog_thread([&] {
@@ -347,12 +317,10 @@ int main()
         Check(plugin->GetAPIVersion() >= 7, "plugin API version should support OnInitialize");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_NAME)) == L"TrafficMonitor GitHub Copilot Quota", "plugin name should match");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_DESCRIPTION)) == L"Displays remaining GitHub Copilot quota in TrafficMonitor.", "plugin description should match");
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_AUTHOR)) == L"zhangxinxu", "plugin author should identify the repository owner");
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_COPYRIGHT)) == L"MIT", "plugin copyright field should name the project license");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_VERSION)) == kTrafficMonitorQuotaPluginVersion, "plugin version should match the unified release version");
-        {
-            EnvironmentVariableGuard options_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_OPTIONS_SMOKE_TEST", L"1");
-            Check(plugin->ShowOptionsDialog(nullptr) == ITMPlugin::OR_OPTION_UNCHANGED,
-                "plugin options dialog should be provided");
-        }
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_URL)) == L"https://github.com/zhangxinxu1992/trafficmonitor-codex-quota-plugin", "plugin URL should point to the public repository");
         VerifyOptionsDialogUsesCompactLayout(plugin);
 
         IPluginItem* item = plugin->GetItem(0);
@@ -369,8 +337,6 @@ int main()
             const std::wstring initial_value(item->GetItemValueText());
             Check(initial_value == L" ...", "initial value should include visible spacing before loading");
             Check(StartsWith(initial_value, L" "), "initial value should start with visible spacing");
-
-            VerifyRefreshFailurePath(plugin, item);
         }
     }
 

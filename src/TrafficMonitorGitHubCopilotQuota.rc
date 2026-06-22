@@ -1,0 +1,35 @@
+#include <winver.h>
+#include "PluginVersionResource.h"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_MAJOR,TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_MINOR,TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_PATCH,TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_BUILD
+ PRODUCTVERSION TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_MAJOR,TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_MINOR,TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_PATCH,TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_BUILD
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x2L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "zhangxinxu"
+            VALUE "FileDescription", "TrafficMonitor GitHub Copilot Quota Plugin"
+            VALUE "FileVersion", TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_TEXT
+            VALUE "InternalName", "TrafficMonitorGitHubCopilotQuota"
+            VALUE "LegalCopyright", "Copyright (c) 2026 zhangxinxu"
+            VALUE "OriginalFilename", "TrafficMonitorGitHubCopilotQuota.dll"
+            VALUE "ProductName", "TrafficMonitor Quota Plugins"
+            VALUE "ProductVersion", TRAFFICMONITOR_QUOTA_PLUGIN_VERSION_TEXT
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

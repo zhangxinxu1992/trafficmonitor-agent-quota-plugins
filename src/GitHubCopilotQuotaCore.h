@@ -2,7 +2,6 @@
 
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace githubcopilotquota
 {
@@ -27,19 +26,13 @@ struct DisplayOptions
 
 struct PluginConfig
 {
-    std::wstring github_token;
     std::wstring username;
-    std::wstring plan;
-    double total_credits{};
-    int billing_day{};
-    bool has_billing_day{};
     DisplayOptions display;
 };
 
 enum class GitHubTokenSource
 {
-    StoredCredential,
-    Config
+    StoredCredential
 };
 
 struct GitHubTokenChoice
@@ -54,26 +47,9 @@ struct Allowance
     std::wstring source;
 };
 
-struct UsageReport
-{
-    std::wstring user;
-    double consumed_credits{};
-};
-
-struct Date
-{
-    int year{};
-    int month{};
-    int day{};
-};
-
 struct UsagePeriod
 {
-    Date start;
-    Date end;
-    std::vector<Date> usage_dates;
     long long reset_at{};
-    bool is_calendar_month_estimate{};
     bool is_copilot_internal{};
 };
 
@@ -130,8 +106,6 @@ std::optional<GitHubTokenChoice> ResolveGitHubToken(
     const std::wstring& stored_token,
     const PluginConfig& config,
     std::wstring& error);
-std::optional<Allowance> ResolveAllowance(const PluginConfig& config, std::wstring& error);
-std::optional<UsageReport> ParseUsageJson(const std::string& json, std::wstring& error);
 std::optional<std::wstring> ParseAuthenticatedUserJson(const std::string& json, std::wstring& error);
 std::optional<CopilotInternalQuotaSnapshot> ParseCopilotInternalUserJson(const std::string& json, std::wstring& error);
 std::optional<DeviceCodeResponse> ParseDeviceCodeJson(const std::string& json, std::wstring& error);
@@ -139,11 +113,6 @@ OAuthTokenResponse ParseAccessTokenJson(const std::string& json, std::wstring& e
 
 Quota CalculateQuota(double total_credits, double consumed_credits);
 Quota CalculateQuotaFromRemaining(double total_credits, double remaining_credits, std::optional<double> remaining_percent);
-UsagePeriod CalculateBillingPeriod(int billing_day, long long now);
-UsagePeriod CalculateCalendarMonthEstimate(long long now);
-
-std::wstring BuildUsagePath(const std::wstring& username, const Date& date);
-std::wstring BuildMonthlyUsagePath(const std::wstring& username, int year, int month);
 
 std::wstring FormatCreditCount(double credits);
 std::wstring FormatPercent(double percent);

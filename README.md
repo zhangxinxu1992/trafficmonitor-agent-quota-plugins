@@ -2,6 +2,9 @@
 
 TrafficMonitor x64 plugin that displays Codex quota percentage.
 
+Unofficial project. This plugin is not affiliated with OpenAI, GitHub, or the
+TrafficMonitor project.
+
 Display items:
 
 - `5h:`: 5-hour Codex window quota plus reset information.
@@ -51,7 +54,7 @@ Recommended authentication is the TrafficMonitor plugin options dialog:
 
 The plugin stores the resulting OAuth token in Windows Credential Manager as a protected local credential for TrafficMonitor. The sign-in flow is only started by the user from options; the background quota refresh never opens a browser. GitHub token environment-variable overrides are not supported.
 
-Optional configuration is stored at `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json`. Use it only when you want a tooltip username or a legacy plaintext fallback token:
+Optional display configuration is stored at `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json` and can be changed from the plugin options dialog:
 
 ```json
 {
@@ -64,16 +67,7 @@ Optional configuration is stored at `%APPDATA%\TrafficMonitorGitHubCopilotQuota\
 
 `quota_display` can be `remaining` or `used`. `reset_display` can be `countdown` or `time`. `show_remaining_credits` controls whether the value includes the remaining credit count such as `1.2kcr`; when the percent is set to `used`, the credit count is still remaining credits. The taskbar sample width follows these options, so hidden credit counts do not reserve extra space.
 
-Plaintext token fallback is still supported for compatibility, but plugin options sign-in is preferred:
-
-```json
-{
-  "github_token": "YOUR_GITHUB_TOKEN",
-  "username": "YOUR_GITHUB_LOGIN"
-}
-```
-
-The plugin uses the same Copilot internal quota endpoint pattern as Win-CodexBar, so `plan`, `total_credits`, and `billing_day` are not required.
+The plugin uses the same Copilot internal quota endpoint pattern as Win-CodexBar. Manual token configuration, GitHub token environment-variable overrides, and GitHub billing API allowance fields are not supported.
 
 Project-specific implementation notes and known pitfalls are in `docs/implementation-notes.md`.
 
@@ -123,3 +117,9 @@ Restart TrafficMonitor after copying the DLL. Enable `CodexQuota5h`, `CodexQuota
 [task_bar]
 plugin_display_item = CodexQuota5h,CodexQuotaWeek,GitHubCopilotQuotaAI
 ```
+
+## License
+
+The plugin code is released under the MIT license. The copied TrafficMonitor
+plugin interface header keeps its upstream copyright and license; see
+`THIRD_PARTY_NOTICES.md`.

@@ -1,4 +1,5 @@
 #include "GitHubCopilotQuotaFetch.h"
+#include "PluginVersion.h"
 
 #include <Windows.h>
 #include <Shellapi.h>
@@ -12,14 +13,11 @@
 
 namespace
 {
-constexpr const wchar_t* kUserAgent = L"TrafficMonitorGitHubCopilotQuota/1.0";
 constexpr const wchar_t* kGitHubHost = L"api.github.com";
 constexpr const wchar_t* kCopilotInternalUserAgent = L"GitHubCopilotChat/0.26.7";
 constexpr const wchar_t* kCopilotEditorVersion = L"vscode/1.96.2";
 constexpr const wchar_t* kCopilotEditorPluginVersion = L"copilot-chat/0.26.7";
 constexpr const wchar_t* kGitHubOAuthCredentialTarget = L"TrafficMonitorGitHubCopilotQuota:GitHubOAuth";
-constexpr const wchar_t* kSkipStoredCredentialEnvVar = L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL";
-constexpr const wchar_t* kLegacySkipStoredCredentialEnvVar = L"GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL";
 constexpr const wchar_t* kGitHubWebHost = L"github.com";
 constexpr const char* kGitHubOAuthClientId = "Iv1.b507a08c87ecfe98";
 
@@ -120,6 +118,11 @@ std::wstring BuildVerificationUrl(const githubcopilotquota::DeviceCodeResponse& 
     url += L"user_code=";
     url += UrlEncodeAscii(device.user_code);
     return url;
+}
+
+std::wstring PluginUserAgent()
+{
+    return L"TrafficMonitorGitHubCopilotQuota/" + std::wstring(kTrafficMonitorQuotaPluginVersion);
 }
 
 std::wstring WindowsErrorMessage(DWORD error_code)
@@ -266,8 +269,9 @@ bool EnsureWinHttpConnected(WinHttpGitHubContext& context, std::wstring& error)
 
     if (context.session.value == nullptr)
     {
+        const auto user_agent = PluginUserAgent();
         context.session.value = WinHttpOpen(
-            kUserAgent,
+            user_agent.c_str(),
             WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
             WINHTTP_NO_PROXY_NAME,
             WINHTTP_NO_PROXY_BYPASS,
@@ -309,7 +313,7 @@ GitHubHttpRequest MakeGitHubUserRequest(const std::wstring& token)
     request.accept = L"application/vnd.github+json";
     request.authorization = L"token " + token;
     request.api_version = L"2022-11-28";
-    request.user_agent = kUserAgent;
+    request.user_agent = PluginUserAgent();
     return request;
 }
 
@@ -320,7 +324,7 @@ GitHubHttpRequest MakeDeviceCodeRequest()
     request.method = L"POST";
     request.path = L"/login/device/code";
     request.accept = L"application/json";
-    request.user_agent = kUserAgent;
+    request.user_agent = PluginUserAgent();
     request.content_type = L"application/x-www-form-urlencoded";
     request.body = std::string("client_id=") + kGitHubOAuthClientId + "&scope=read%3Auser";
     return request;
@@ -333,7 +337,7 @@ GitHubHttpRequest MakeAccessTokenRequest(const std::wstring& device_code)
     request.method = L"POST";
     request.path = L"/login/oauth/access_token";
     request.accept = L"application/json";
-    request.user_agent = kUserAgent;
+    request.user_agent = PluginUserAgent();
     request.content_type = L"application/x-www-form-urlencoded";
     request.body = std::string("client_id=") + kGitHubOAuthClientId
         + "&device_code=" + NarrowAscii(device_code)
@@ -368,7 +372,7 @@ bool AddGitHubRequestHeaders(HINTERNET request, const GitHubHttpRequest& git_hub
     {
         headers += L"Editor-Plugin-Version: " + git_hub_request.editor_plugin_version + L"\r\n";
     }
-    headers += L"User-Agent: " + (git_hub_request.user_agent.empty() ? std::wstring(kUserAgent) : git_hub_request.user_agent);
+    headers += L"User-Agent: " + (git_hub_request.user_agent.empty() ? PluginUserAgent() : git_hub_request.user_agent);
     headers += L"\r\n";
 
     if (!WinHttpAddRequestHeaders(
@@ -498,8 +502,9 @@ bool RealGitHubRequest(
     }
     if (winhttp_context->session.value == nullptr)
     {
+        const auto user_agent = PluginUserAgent();
         winhttp_context->session.value = WinHttpOpen(
-            kUserAgent,
+            user_agent.c_str(),
             WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
             WINHTTP_NO_PROXY_NAME,
             WINHTTP_NO_PROXY_BYPASS,
@@ -994,21 +999,12 @@ FetchResult FetchQuotaSnapshotFromConfigJsonWithStoredToken(
     period.reset_at = internal_snapshot->reset_at;
     period.is_copilot_internal = true;
 
-    UsageReport usage;
-    usage.user = config->username;
-    usage.consumed_credits = quota.consumed_credits;
-
-    config->github_token.clear();
-    if (config->plan.empty())
-    {
-        config->plan = internal_snapshot->plan;
-    }
     result.snapshot.config = *config;
+    result.snapshot.plan = internal_snapshot->plan;
     result.snapshot.allowance = Allowance{
         internal_snapshot->total_credits,
         internal_snapshot->quota_id.empty() ? L"copilot_internal" : L"copilot_internal:" + internal_snapshot->quota_id};
     result.snapshot.period = period;
-    result.snapshot.usage = usage;
     result.snapshot.quota = quota;
     result.snapshot.username = config->username;
     result.success = true;
@@ -1021,15 +1017,11 @@ FetchResult FetchQuotaSnapshot()
 
     std::wstring config_json;
     std::wstring credential_error;
-    const auto skip_stored_credential = !Trim(GetEnvVar(kSkipStoredCredentialEnvVar)).empty()
-        || !Trim(GetEnvVar(kLegacySkipStoredCredentialEnvVar)).empty();
-    const auto stored_token = skip_stored_credential
-        ? std::wstring()
-        : ReadCredentialToken(GetGitHubOAuthCredentialTarget(), credential_error).value_or(L"");
+    const auto stored_token = ReadCredentialToken(GetGitHubOAuthCredentialTarget(), credential_error).value_or(L"");
     const auto config_path = GetDefaultConfigPath();
     if (!ReadFileUtf8AsWide(config_path, config_json, result.error))
     {
-        if (Trim(stored_token).empty() || result.error.find(L"config not found") == std::wstring::npos)
+        if (result.error.find(L"config not found") == std::wstring::npos)
         {
             return result;
         }

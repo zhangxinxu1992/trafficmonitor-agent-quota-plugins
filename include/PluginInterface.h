@@ -2,6 +2,8 @@
 * TrafficMonitor 插件接口
 * Copyright (C) by Zhong Yang 2021
 * zhongyang219@hotmail.com
+* Source: https://github.com/zhongyang219/TrafficMonitor
+* License: Anti-996 License Version 1.0 (Draft)
 **********************************************************/
 #pragma once
 

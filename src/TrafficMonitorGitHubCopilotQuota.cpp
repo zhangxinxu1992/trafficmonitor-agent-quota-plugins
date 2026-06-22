@@ -27,12 +27,6 @@ constexpr const wchar_t* kOptionsDialogClassName = L"TrafficMonitorGitHubCopilot
 
 class GitHubCopilotQuotaPlugin;
 
-bool IsEnvFlagSet(const wchar_t* name)
-{
-    wchar_t value[8]{};
-    return GetEnvironmentVariableW(name, value, 8) != 0;
-}
-
 std::wstring WindowsErrorMessage(DWORD error_code)
 {
     wchar_t* buffer = nullptr;
@@ -953,13 +947,13 @@ public:
         case TMI_DESCRIPTION:
             return L"Displays remaining GitHub Copilot quota in TrafficMonitor.";
         case TMI_AUTHOR:
-            return L"OpenAI Codex";
+            return L"zhangxinxu";
         case TMI_COPYRIGHT:
             return L"MIT";
         case TMI_VERSION:
             return kTrafficMonitorQuotaPluginVersion;
         case TMI_URL:
-            return L"";
+            return L"https://github.com/zhangxinxu1992/trafficmonitor-codex-quota-plugin";
         default:
             return L"";
         }
@@ -974,12 +968,6 @@ public:
 
     OptionReturn ShowOptionsDialog(void* hParent) override
     {
-        if (IsEnvFlagSet(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_OPTIONS_SMOKE_TEST")
-            || IsEnvFlagSet(L"GITHUB_COPILOT_QUOTA_OPTIONS_SMOKE_TEST"))
-        {
-            return OR_OPTION_UNCHANGED;
-        }
-
         auto* parent = static_cast<HWND>(hParent);
         std::wstring config_error;
         auto config = LoadGitHubConfig(config_error);
@@ -1140,26 +1128,16 @@ private:
             return L"Period mode: GitHub Copilot internal quota";
         }
 
-        if (m_snapshot.period.is_calendar_month_estimate)
-        {
-            return L"Period mode: calendar month estimate";
-        }
-
-        if (m_snapshot.config.has_billing_day)
-        {
-            return L"Period mode: billing day " + std::to_wstring(m_snapshot.config.billing_day);
-        }
-
-        return L"Period mode: configured billing period";
+        return L"Period mode: unknown";
     }
 
     std::wstring BuildTooltipLocked() const
     {
         std::wstring tooltip = L"TrafficMonitor GitHub Copilot quota";
-        if (!m_snapshot.config.plan.empty())
+        if (!m_snapshot.plan.empty())
         {
             tooltip += L"\nPlan: ";
-            tooltip += m_snapshot.config.plan;
+            tooltip += m_snapshot.plan;
         }
 
         if (m_has_snapshot)

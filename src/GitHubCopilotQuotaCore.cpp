@@ -8,6 +8,13 @@
 
 namespace
 {
+struct Date
+{
+    int year{};
+    int month{};
+    int day{};
+};
+
 std::wstring Trim(const std::wstring& value)
 {
     const auto first = value.find_first_not_of(L" \t\r\n");
@@ -311,30 +318,6 @@ std::optional<double> FindJsonDouble(const std::string& json, const std::string&
     }
 }
 
-std::optional<long long> FindJsonInt64(const std::wstring& json, const std::wstring& key)
-{
-    const auto text = FindJsonScalarText(json, key);
-    if (!text.has_value())
-    {
-        return std::nullopt;
-    }
-
-    try
-    {
-        std::size_t parsed{};
-        const auto value = std::stoll(*text, &parsed);
-        if (!HasOnlyTrailingWhitespace(*text, parsed))
-        {
-            return std::nullopt;
-        }
-        return value;
-    }
-    catch (...)
-    {
-        return std::nullopt;
-    }
-}
-
 std::optional<int> FindJsonInt(const std::string& json, const std::string& key)
 {
     const auto value = FindJsonDouble(json, key);
@@ -348,58 +331,6 @@ std::optional<int> FindJsonInt(const std::string& json, const std::string& key)
         return std::nullopt;
     }
     return static_cast<int>(rounded);
-}
-
-std::optional<std::string> FindJsonArray(const std::string& json, const std::string& key)
-{
-    const auto value_pos = FindJsonValueStart(json, key);
-    if (!value_pos.has_value() || json[*value_pos] != '[')
-    {
-        return std::nullopt;
-    }
-
-    int depth = 0;
-    bool in_string = false;
-    bool escaped = false;
-    for (auto index = *value_pos; index < json.size(); ++index)
-    {
-        const auto ch = json[index];
-        if (in_string)
-        {
-            if (escaped)
-            {
-                escaped = false;
-            }
-            else if (ch == '\\')
-            {
-                escaped = true;
-            }
-            else if (ch == '"')
-            {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if (ch == '"')
-        {
-            in_string = true;
-        }
-        else if (ch == '[')
-        {
-            ++depth;
-        }
-        else if (ch == ']')
-        {
-            --depth;
-            if (depth == 0)
-            {
-                return json.substr(*value_pos, index - *value_pos + 1);
-            }
-        }
-    }
-
-    return std::nullopt;
 }
 
 std::optional<std::string> JsonObjectAt(const std::string& json, std::size_t object_pos)
@@ -509,65 +440,6 @@ std::optional<std::string> FirstNestedJsonObject(const std::string& json)
     return std::nullopt;
 }
 
-std::vector<std::string> ExtractJsonObjects(const std::string& array_json)
-{
-    std::vector<std::string> objects;
-    bool in_string = false;
-    bool escaped = false;
-    int object_depth = 0;
-    std::size_t object_start = std::string::npos;
-
-    for (std::size_t index = 0; index < array_json.size(); ++index)
-    {
-        const auto ch = array_json[index];
-        if (in_string)
-        {
-            if (escaped)
-            {
-                escaped = false;
-            }
-            else if (ch == '\\')
-            {
-                escaped = true;
-            }
-            else if (ch == '"')
-            {
-                in_string = false;
-            }
-            continue;
-        }
-
-        if (ch == '"')
-        {
-            in_string = true;
-        }
-        else if (ch == '{')
-        {
-            if (object_depth == 0)
-            {
-                object_start = index;
-            }
-            ++object_depth;
-        }
-        else if (ch == '}' && object_depth > 0)
-        {
-            --object_depth;
-            if (object_depth == 0 && object_start != std::string::npos)
-            {
-                objects.push_back(array_json.substr(object_start, index - object_start + 1));
-                object_start = std::string::npos;
-            }
-        }
-    }
-
-    return objects;
-}
-
-bool Contains(const std::string& value, const std::string& needle)
-{
-    return value.find(needle) != std::string::npos;
-}
-
 bool IsLeapYear(int year)
 {
     return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
@@ -587,40 +459,7 @@ int DaysInMonth(int year, int month)
     return days_by_month[month - 1];
 }
 
-githubcopilotquota::Date AddMonths(const githubcopilotquota::Date& date, int months)
-{
-    auto year = date.year;
-    auto month = date.month + months;
-    while (month > 12)
-    {
-        month -= 12;
-        ++year;
-    }
-    while (month < 1)
-    {
-        month += 12;
-        --year;
-    }
-
-    const auto day = std::min(date.day, DaysInMonth(year, month));
-    return githubcopilotquota::Date{year, month, day};
-}
-
-githubcopilotquota::Date BillingDate(int year, int month, int billing_day)
-{
-    const auto day = std::min(std::max(billing_day, 1), DaysInMonth(year, month));
-    return githubcopilotquota::Date{year, month, day};
-}
-
-githubcopilotquota::Date DateFromTimestamp(long long timestamp)
-{
-    const auto time_value = static_cast<std::time_t>(timestamp);
-    std::tm utc{};
-    gmtime_s(&utc, &time_value);
-    return githubcopilotquota::Date{utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday};
-}
-
-long long TimestampFromDate(const githubcopilotquota::Date& date)
+long long TimestampFromDate(const Date& date)
 {
     std::tm utc{};
     utc.tm_year = date.year - 1900;
@@ -641,7 +480,7 @@ std::optional<long long> ParseResetTimestamp(const std::string& value)
             const auto day = std::stoi(value.substr(8, 2));
             if (month >= 1 && month <= 12 && day >= 1 && day <= DaysInMonth(year, month))
             {
-                return TimestampFromDate(githubcopilotquota::Date{year, month, day});
+                return TimestampFromDate(Date{year, month, day});
             }
         }
         catch (...)
@@ -650,23 +489,6 @@ std::optional<long long> ParseResetTimestamp(const std::string& value)
     }
 
     return std::nullopt;
-}
-
-githubcopilotquota::Date AddDays(const githubcopilotquota::Date& date, int days)
-{
-    return DateFromTimestamp(TimestampFromDate(date) + static_cast<long long>(days) * 24 * 60 * 60);
-}
-
-std::vector<githubcopilotquota::Date> BuildDateRange(const githubcopilotquota::Date& start, const githubcopilotquota::Date& end)
-{
-    std::vector<githubcopilotquota::Date> dates;
-    const auto start_time = TimestampFromDate(start);
-    const auto end_time = TimestampFromDate(end);
-    for (auto time_value = start_time; time_value < end_time; time_value += 24 * 60 * 60)
-    {
-        dates.push_back(DateFromTimestamp(time_value));
-    }
-    return dates;
 }
 
 std::optional<githubcopilotquota::CopilotInternalQuotaSnapshot> QuotaFromObject(
@@ -790,46 +612,9 @@ std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstri
     error.clear();
 
     PluginConfig config;
-    if (const auto token = FindJsonStringValue(json, L"github_token"))
-    {
-        config.github_token = Trim(*token);
-    }
     if (const auto username = FindJsonStringValue(json, L"username"))
     {
         config.username = Trim(*username);
-    }
-    if (const auto plan = FindJsonStringValue(json, L"plan"))
-    {
-        config.plan = Trim(*plan);
-    }
-    if (FindJsonValueStart(json, L"total_credits").has_value())
-    {
-        const auto total_credits = FindJsonDouble(json, L"total_credits");
-        if (!total_credits.has_value())
-        {
-            error = L"TrafficMonitor GitHub Copilot quota config total_credits must be a valid number.";
-            return std::nullopt;
-        }
-        config.total_credits = *total_credits;
-    }
-    if (FindJsonValueStart(json, L"billing_day").has_value())
-    {
-        const auto billing_day = FindJsonInt64(json, L"billing_day");
-        if (!billing_day.has_value())
-        {
-            error = L"TrafficMonitor GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
-            return std::nullopt;
-        }
-        if (*billing_day >= 1 && *billing_day <= 31)
-        {
-            config.billing_day = static_cast<int>(*billing_day);
-            config.has_billing_day = true;
-        }
-        else
-        {
-            error = L"TrafficMonitor GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
-            return std::nullopt;
-        }
     }
     if (const auto quota_display = FindJsonStringValue(json, L"quota_display"))
     {
@@ -886,19 +671,7 @@ std::wstring SerializeConfigJson(const PluginConfig& config)
         stream << L"  \"" << key << L"\": \"" << EscapeJsonString(value) << L"\"";
     };
 
-    write_string(L"github_token", config.github_token);
     write_string(L"username", config.username);
-    write_string(L"plan", config.plan);
-    if (config.total_credits > 0.0)
-    {
-        write_separator();
-        stream << L"  \"total_credits\": " << config.total_credits;
-    }
-    if (config.has_billing_day)
-    {
-        write_separator();
-        stream << L"  \"billing_day\": " << config.billing_day;
-    }
 
     write_separator();
     stream << L"  \"quota_display\": \"" << QuotaDisplayModeText(config.display.quota_display) << L"\"";
@@ -923,37 +696,8 @@ std::optional<GitHubTokenChoice> ResolveGitHubToken(
         return GitHubTokenChoice{trimmed_stored_token, GitHubTokenSource::StoredCredential};
     }
 
-    const auto trimmed_config_token = Trim(config.github_token);
-    if (!trimmed_config_token.empty())
-    {
-        return GitHubTokenChoice{trimmed_config_token, GitHubTokenSource::Config};
-    }
-
-    error = L"Missing GitHub token. Sign in from TrafficMonitor plugin options or set github_token in TrafficMonitor config.json.";
-    return std::nullopt;
-}
-
-std::optional<Allowance> ResolveAllowance(const PluginConfig& config, std::wstring& error)
-{
-    error.clear();
-    if (config.total_credits > 0.0)
-    {
-        return Allowance{config.total_credits, L"total_credits"};
-    }
-    if (config.plan == L"pro")
-    {
-        return Allowance{1500.0, L"plan:pro"};
-    }
-    if (config.plan == L"pro_plus")
-    {
-        return Allowance{7000.0, L"plan:pro_plus"};
-    }
-    if (config.plan == L"max")
-    {
-        return Allowance{20000.0, L"plan:max"};
-    }
-
-    error = L"TrafficMonitor GitHub Copilot quota config requires total_credits or a known plan.";
+    (void)config;
+    error = L"Missing GitHub token. Sign in from TrafficMonitor plugin options.";
     return std::nullopt;
 }
 
@@ -1033,47 +777,6 @@ OAuthTokenResponse ParseAccessTokenJson(const std::string& json, std::wstring& e
     response.token_type = ToWide(FindJsonStringValue(json, "token_type").value_or(""));
     response.scope = ToWide(FindJsonStringValue(json, "scope").value_or(""));
     return response;
-}
-
-std::optional<UsageReport> ParseUsageJson(const std::string& json, std::wstring& error)
-{
-    error.clear();
-
-    const auto usage_items = FindJsonArray(json, "usageItems");
-    if (!usage_items.has_value())
-    {
-        error = L"GitHub usage response does not contain usageItems.";
-        return std::nullopt;
-    }
-
-    UsageReport report;
-    if (const auto user = FindJsonStringValue(json, "user"))
-    {
-        report.user = ToWide(*user);
-    }
-
-    for (const auto& item : ExtractJsonObjects(*usage_items))
-    {
-        const auto product = FindJsonStringValue(item, "product").value_or("");
-        const auto sku = FindJsonStringValue(item, "sku").value_or("");
-        if (!Contains(product, "Copilot AI Credits") && !Contains(sku, "AI Credit"))
-        {
-            continue;
-        }
-
-        if (FindJsonValueStart(item, "netQuantity").has_value())
-        {
-            const auto net_quantity = FindJsonDouble(item, "netQuantity");
-            if (!net_quantity.has_value())
-            {
-                error = L"GitHub usage response contains malformed netQuantity.";
-                return std::nullopt;
-            }
-            report.consumed_credits += *net_quantity;
-        }
-    }
-
-    return report;
 }
 
 std::optional<std::wstring> ParseAuthenticatedUserJson(const std::string& json, std::wstring& error)
@@ -1203,67 +906,6 @@ Quota CalculateQuotaFromRemaining(double total_credits, double remaining_credits
         quota.remaining_percent = total_credits <= 0.0 ? 0.0 : (quota.remaining_credits * 100.0 / total_credits);
     }
     return quota;
-}
-
-UsagePeriod CalculateBillingPeriod(int billing_day, long long now)
-{
-    billing_day = std::min(std::max(billing_day, 1), 31);
-
-    UsagePeriod period;
-    const auto current = DateFromTimestamp(now);
-    const auto candidate_start = BillingDate(current.year, current.month, billing_day);
-    const auto candidate_start_time = TimestampFromDate(candidate_start);
-
-    if (now >= candidate_start_time)
-    {
-        period.start = candidate_start;
-        const auto next_month = AddMonths(Date{current.year, current.month, 1}, 1);
-        period.end = BillingDate(next_month.year, next_month.month, billing_day);
-    }
-    else
-    {
-        period.end = candidate_start;
-        const auto previous_month = AddMonths(Date{current.year, current.month, 1}, -1);
-        period.start = BillingDate(previous_month.year, previous_month.month, billing_day);
-    }
-
-    period.reset_at = TimestampFromDate(period.end);
-    auto usage_end = AddDays(current, 1);
-    if (TimestampFromDate(usage_end) > TimestampFromDate(period.end))
-    {
-        usage_end = period.end;
-    }
-    period.usage_dates = BuildDateRange(period.start, usage_end);
-    period.is_calendar_month_estimate = false;
-    return period;
-}
-
-UsagePeriod CalculateCalendarMonthEstimate(long long now)
-{
-    UsagePeriod period;
-    const auto current = DateFromTimestamp(now);
-    period.start = Date{current.year, current.month, 1};
-    const auto next_month = AddMonths(period.start, 1);
-    period.end = Date{next_month.year, next_month.month, 1};
-    period.reset_at = 0;
-    period.is_calendar_month_estimate = true;
-    return period;
-}
-
-std::wstring BuildUsagePath(const std::wstring& username, const Date& date)
-{
-    std::wostringstream stream;
-    stream << L"/users/" << username << L"/settings/billing/ai_credit/usage?year=" << date.year
-           << L"&month=" << date.month << L"&day=" << date.day;
-    return stream.str();
-}
-
-std::wstring BuildMonthlyUsagePath(const std::wstring& username, int year, int month)
-{
-    std::wostringstream stream;
-    stream << L"/users/" << username << L"/settings/billing/ai_credit/usage?year=" << year
-           << L"&month=" << month;
-    return stream.str();
 }
 
 std::wstring FormatCreditCount(double credits)

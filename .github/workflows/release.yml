@@ -43,6 +43,36 @@ jobs:
           msbuild .\TrafficMonitorGitHubCopilotQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Build Release x64 tests
+        shell: pwsh
+        run: |
+          msbuild .\CodexQuotaTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          msbuild .\PluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          msbuild .\GitHubCopilotQuotaTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          msbuild .\GitHubCopilotPluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Release x64 tests
+        shell: pwsh
+        run: |
+          .\build\x64\Release\CodexQuotaTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          .\build\x64\Release\PluginSmokeTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          .\build\x64\Release\GitHubCopilotQuotaTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          .\build\x64\Release\GitHubCopilotPluginSmokeTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Package plugins
         shell: pwsh
         run: |
@@ -53,6 +83,9 @@ jobs:
           New-Item -ItemType Directory -Force $packageDir | Out-Null
           Copy-Item .\build\x64\Release\TrafficMonitorCodexQuota.dll $packageDir
           Copy-Item .\build\x64\Release\TrafficMonitorGitHubCopilotQuota.dll $packageDir
+          Copy-Item .\README.md $packageDir
+          Copy-Item .\LICENSE $packageDir
+          Copy-Item .\THIRD_PARTY_NOTICES.md $packageDir
           Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $asset -Force
 
       - name: Publish GitHub release

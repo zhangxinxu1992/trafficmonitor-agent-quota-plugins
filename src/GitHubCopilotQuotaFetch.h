@@ -9,9 +9,9 @@ namespace githubcopilotquota
 struct QuotaSnapshot
 {
     PluginConfig config;
+    std::wstring plan;
     Allowance allowance;
     UsagePeriod period;
-    UsageReport usage;
     Quota quota;
     std::wstring username;
 };

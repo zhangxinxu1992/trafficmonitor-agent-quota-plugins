@@ -2,9 +2,12 @@
 #include "../src/PluginVersion.h"
 
 #include <Windows.h>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <thread>
 
 namespace
 {
@@ -142,6 +145,96 @@ bool RunLiveRefresh()
     return GetEnvironmentVariableW(L"TRAFFICMONITOR_CODEX_QUOTA_RUN_LIVE_TEST", flag, 8) != 0
         || GetEnvironmentVariableW(L"CODEX_QUOTA_RUN_LIVE_TEST", flag, 8) != 0;
 }
+
+struct FindOwnWindowContext
+{
+    const wchar_t* class_name{};
+    const wchar_t* title{};
+    DWORD process_id{};
+    HWND window{};
+};
+
+BOOL CALLBACK FindOwnWindow(HWND window, LPARAM parameter)
+{
+    auto* context = reinterpret_cast<FindOwnWindowContext*>(parameter);
+    DWORD process_id = 0;
+    GetWindowThreadProcessId(window, &process_id);
+    if (process_id != context->process_id)
+    {
+        return TRUE;
+    }
+
+    wchar_t class_name[128]{};
+    wchar_t title[256]{};
+    GetClassNameW(window, class_name, static_cast<int>(_countof(class_name)));
+    GetWindowTextW(window, title, static_cast<int>(_countof(title)));
+    if (std::wstring(class_name) == context->class_name && std::wstring(title) == context->title)
+    {
+        context->window = window;
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+HWND FindOwnWindowByClassAndTitle(const wchar_t* class_name, const wchar_t* title)
+{
+    FindOwnWindowContext context{class_name, title, GetCurrentProcessId(), nullptr};
+    EnumWindows(FindOwnWindow, reinterpret_cast<LPARAM>(&context));
+    return context.window;
+}
+
+void VerifyOptionsDialogOpensAndCloses(ITMPlugin* plugin)
+{
+    std::atomic<bool> finished{false};
+    std::atomic<DWORD> dialog_thread_id{0};
+    ITMPlugin::OptionReturn result = ITMPlugin::OR_OPTION_CHANGED;
+    std::thread dialog_thread([&] {
+        dialog_thread_id = GetCurrentThreadId();
+        result = plugin->ShowOptionsDialog(nullptr);
+        finished = true;
+    });
+
+    HWND dialog = nullptr;
+    for (int attempt = 0; attempt < 50 && !finished; ++attempt)
+    {
+        dialog = FindOwnWindowByClassAndTitle(L"TrafficMonitorCodexQuotaOptions", L"TrafficMonitor Codex Quota");
+        if (dialog != nullptr)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    Check(dialog != nullptr, "Codex plugin options dialog should open");
+    if (dialog != nullptr)
+    {
+        PostMessageW(dialog, WM_CLOSE, 0, 0);
+    }
+    else if (dialog_thread_id != 0)
+    {
+        PostThreadMessageW(dialog_thread_id, WM_QUIT, 0, 0);
+    }
+
+    for (int attempt = 0; attempt < 50 && !finished; ++attempt)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    if (dialog_thread.joinable())
+    {
+        if (finished)
+        {
+            dialog_thread.join();
+            Check(result == ITMPlugin::OR_OPTION_UNCHANGED, "closing Codex options should leave options unchanged");
+        }
+        else
+        {
+            Check(false, "Codex plugin options dialog smoke test should finish");
+            dialog_thread.detach();
+        }
+    }
+}
 }
 
 int main()
@@ -167,12 +260,11 @@ int main()
     {
         Check(plugin->GetAPIVersion() >= 7, "plugin API version should support OnInitialize");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_NAME)) == L"TrafficMonitor Codex Quota", "plugin name should match");
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_AUTHOR)) == L"zhangxinxu", "plugin author should identify the repository owner");
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_COPYRIGHT)) == L"MIT", "plugin copyright field should name the project license");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_VERSION)) == kTrafficMonitorQuotaPluginVersion, "plugin version should match the unified release version");
-        {
-            EnvironmentVariableGuard options_guard(L"TRAFFICMONITOR_CODEX_QUOTA_OPTIONS_SMOKE_TEST", L"1");
-            Check(plugin->ShowOptionsDialog(nullptr) == ITMPlugin::OR_OPTION_UNCHANGED,
-                "Codex plugin options dialog should be provided");
-        }
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_URL)) == L"https://github.com/zhangxinxu1992/trafficmonitor-codex-quota-plugin", "plugin URL should point to the public repository");
+        VerifyOptionsDialogOpensAndCloses(plugin);
 
         IPluginItem* five_hour = plugin->GetItem(0);
         IPluginItem* weekly = plugin->GetItem(1);

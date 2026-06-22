@@ -1,4 +1,6 @@
 build/
+.agents/
+.codex/
 x64/
 Debug/
 Release/

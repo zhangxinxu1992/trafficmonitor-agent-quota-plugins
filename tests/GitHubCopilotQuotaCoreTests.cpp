@@ -27,19 +27,6 @@ void CheckNear(double actual, double expected, const char* message)
     Check(std::fabs(actual - expected) < 0.0001, message);
 }
 
-bool IsOnOrBefore(const githubcopilotquota::Date& actual, const githubcopilotquota::Date& expected)
-{
-    if (actual.year != expected.year)
-    {
-        return actual.year < expected.year;
-    }
-    if (actual.month != expected.month)
-    {
-        return actual.month < expected.month;
-    }
-    return actual.day <= expected.day;
-}
-
 struct FakeGitHubTransport
 {
     std::vector<githubcopilotquota::GitHubHttpRequest> requests;
@@ -140,25 +127,6 @@ void FakeSleep(int seconds, void* context)
     fake->sleeps.push_back(seconds);
 }
 
-githubcopilotquota::GitHubHttpResponse FakeUsageResponse(double credits)
-{
-    return githubcopilotquota::GitHubHttpResponse{
-        200,
-        R"({"user":"octocat","usageItems":[{"product":"Copilot AI Credits","sku":"AI Credit","netQuantity":")"
-            + std::to_string(credits)
-            + R"("}]})"};
-}
-
-std::vector<githubcopilotquota::GitHubHttpResponse> FakeUsageResponses(int count, double credits)
-{
-    std::vector<githubcopilotquota::GitHubHttpResponse> responses;
-    for (auto index = 0; index < count; ++index)
-    {
-        responses.push_back(FakeUsageResponse(credits));
-    }
-    return responses;
-}
-
 githubcopilotquota::GitHubHttpResponse FakeCopilotInternalResponse()
 {
     return githubcopilotquota::GitHubHttpResponse{
@@ -186,26 +154,20 @@ githubcopilotquota::GitHubHttpResponse FakeCopilotInternalResponse()
 void TestResolvesGitHubTokenPrecedence()
 {
     githubcopilotquota::PluginConfig config;
-    config.github_token = L" config-token ";
 
     std::wstring error;
     const auto stored_choice = githubcopilotquota::ResolveGitHubToken(L" stored-token ", config, error);
     Check(stored_choice.has_value(), "stored token choice should resolve");
-    Check(stored_choice->token == L"stored-token", "stored token should be trimmed and preferred over config");
+    Check(stored_choice->token == L"stored-token", "stored token should be trimmed");
     Check(stored_choice->source == githubcopilotquota::GitHubTokenSource::StoredCredential, "stored token source should be reported");
 
-    error.clear();
-    const auto config_choice = githubcopilotquota::ResolveGitHubToken(L"", config, error);
-    Check(config_choice.has_value(), "config token choice should resolve");
-    Check(config_choice->token == L"config-token", "config token should be trimmed");
-    Check(config_choice->source == githubcopilotquota::GitHubTokenSource::Config, "config token source should be reported");
-
-    config.github_token.clear();
     error.clear();
     const auto missing_choice = githubcopilotquota::ResolveGitHubToken(L" ", config, error);
     Check(!missing_choice.has_value(), "missing token choice should fail");
     Check(error.find(L"TrafficMonitor plugin options") != std::wstring::npos,
         "missing token error should direct users to plugin options sign-in");
+    Check(error.find(L"github_token") == std::wstring::npos,
+        "missing token error should not mention legacy plaintext config tokens");
     Check(error.find(L"environment") == std::wstring::npos && error.find(L"override") == std::wstring::npos,
         "missing token error should only mention supported token sources");
 }
@@ -295,7 +257,7 @@ void TestCredentialTokenRoundTripWithTestTarget()
     Check(!deleted_token.has_value(), "deleted credential token should not be found");
 }
 
-void TestFetchUsesStoredTokenBeforeConfigToken()
+void TestFetchUsesStoredTokenWhenLegacyConfigTokenIsPresent()
 {
     FakeGitHubTransport fake;
     fake.responses.push_back(FakeCopilotInternalResponse());
@@ -310,7 +272,7 @@ void TestFetchUsesStoredTokenBeforeConfigToken()
     Check(result.success, "fetch helper should succeed with stored token");
     Check(fake.requests.size() == 1, "stored-token fetch should issue one request");
     Check(!fake.requests.empty() && fake.requests.front().authorization == L"token stored-token",
-        "stored token should be used before config token");
+        "stored token should be used when legacy config token is present");
 }
 
 void TestRunGitHubDeviceLoginStoresTokenAfterVerification()
@@ -420,245 +382,24 @@ void TestRunGitHubDeviceLoginBuildsCompleteUrlWhenGitHubOmitsIt()
         "device login should build a complete verification URL from verification_uri and user_code");
 }
 
-void TestParsesConfigWithExplicitAllowance()
+void TestParsesCurrentConfigFields()
 {
     std::wstring error;
     const auto config = githubcopilotquota::ParseConfigJson(
         LR"({
-            "github_token": "config-token",
             "username": "octocat",
-            "plan": "pro",
-            "total_credits": 2345,
-            "billing_day": 15,
             "quota_display": "used",
             "reset_display": "time",
             "show_remaining_credits": false
         })",
         error);
 
-    Check(config.has_value(), "config with explicit allowance should parse");
-    Check(config->github_token == L"config-token", "config token should parse");
+    Check(config.has_value(), "current config fields should parse");
     Check(config->username == L"octocat", "username should parse");
-    Check(config->plan == L"pro", "plan should parse");
-    CheckNear(config->total_credits, 2345.0, "total credits should parse");
-    Check(config->has_billing_day, "billing day should be marked present");
-    Check(config->billing_day == 15, "billing day should parse");
     Check(config->display.quota_display == githubcopilotquota::QuotaDisplayMode::Used, "quota display should parse");
     Check(config->display.reset_display == githubcopilotquota::ResetDisplayMode::Time, "reset display should parse");
     Check(!config->display.show_remaining_credits, "remaining credits display flag should parse");
     Check(error.empty(), "successful config parse should not set error");
-}
-
-void TestRejectsMalformedConfigTotalCredits()
-{
-    std::wstring error;
-    const auto config = githubcopilotquota::ParseConfigJson(
-        LR"({
-            "username": "octocat",
-            "plan": "pro",
-            "total_credits": "1500abc"
-        })",
-        error);
-
-    Check(!config.has_value(), "malformed total_credits should fail config parsing");
-    Check(!error.empty(), "malformed total_credits should set error");
-}
-
-void TestRejectsNonFiniteConfigTotalCredits()
-{
-    std::wstring nan_error;
-    const auto nan_config = githubcopilotquota::ParseConfigJson(
-        LR"({
-            "username": "octocat",
-            "plan": "pro",
-            "total_credits": "nan"
-        })",
-        nan_error);
-
-    Check(!nan_config.has_value(), "nan total_credits should fail config parsing");
-    Check(!nan_error.empty(), "nan total_credits should set error");
-
-    std::wstring inf_error;
-    const auto inf_config = githubcopilotquota::ParseConfigJson(
-        LR"({
-            "username": "octocat",
-            "plan": "pro",
-            "total_credits": "inf"
-        })",
-        inf_error);
-
-    Check(!inf_config.has_value(), "inf total_credits should fail config parsing");
-    Check(!inf_error.empty(), "inf total_credits should set error");
-}
-
-void TestRejectsUnquotedWhitespaceGarbageTotalCredits()
-{
-    std::wstring error;
-    const auto config = githubcopilotquota::ParseConfigJson(
-        LR"({
-            "username": "octocat",
-            "plan": "pro",
-            "total_credits": 1500 abc
-        })",
-        error);
-
-    Check(!config.has_value(), "unquoted total_credits with whitespace garbage should fail config parsing");
-    Check(!error.empty(), "unquoted total_credits with whitespace garbage should set error");
-}
-
-void TestRejectsFractionalBillingDay()
-{
-    std::wstring error;
-    const auto config = githubcopilotquota::ParseConfigJson(
-        LR"({
-            "username": "octocat",
-            "plan": "pro",
-            "total_credits": 1500,
-            "billing_day": 15.9
-        })",
-        error);
-
-    Check(!config.has_value(), "fractional billing_day should fail config parsing");
-    Check(!error.empty(), "fractional billing_day should set error");
-}
-
-void TestRejectsUnquotedWhitespaceGarbageBillingDay()
-{
-    std::wstring error;
-    const auto config = githubcopilotquota::ParseConfigJson(
-        LR"({
-            "username": "octocat",
-            "plan": "pro",
-            "total_credits": 1500,
-            "billing_day": 15 abc
-        })",
-        error);
-
-    Check(!config.has_value(), "unquoted billing_day with whitespace garbage should fail config parsing");
-    Check(!error.empty(), "unquoted billing_day with whitespace garbage should set error");
-}
-
-void TestResolvesAllowanceFromPlan()
-{
-    githubcopilotquota::PluginConfig config;
-    config.plan = L"pro_plus";
-
-    std::wstring error;
-    const auto allowance = githubcopilotquota::ResolveAllowance(config, error);
-
-    Check(allowance.has_value(), "known plan should resolve allowance");
-    CheckNear(allowance->total_credits, 7000.0, "pro_plus allowance should be 7000");
-    Check(allowance->source == L"plan:pro_plus", "allowance source should name plan");
-    Check(error.empty(), "successful allowance resolution should not set error");
-}
-
-void TestExplicitAllowanceOverridesPlan()
-{
-    githubcopilotquota::PluginConfig config;
-    config.plan = L"pro_plus";
-    config.total_credits = 2345.0;
-
-    std::wstring error;
-    const auto allowance = githubcopilotquota::ResolveAllowance(config, error);
-
-    Check(allowance.has_value(), "explicit allowance should resolve");
-    CheckNear(allowance->total_credits, 2345.0, "explicit total credits should override plan allowance");
-    Check(allowance->source == L"total_credits", "explicit allowance source should be total_credits");
-    Check(error.empty(), "successful explicit allowance resolution should not set error");
-}
-
-void TestRejectsMissingAllowance()
-{
-    githubcopilotquota::PluginConfig config;
-
-    std::wstring error;
-    const auto allowance = githubcopilotquota::ResolveAllowance(config, error);
-
-    Check(!allowance.has_value(), "missing allowance should fail");
-    Check(error.find(L"plan") != std::wstring::npos, "missing allowance error should mention plan");
-    Check(error.find(L"total_credits") != std::wstring::npos, "missing allowance error should mention total_credits");
-}
-
-void TestParsesUsageReport()
-{
-    std::wstring error;
-    const auto usage = githubcopilotquota::ParseUsageJson(
-        R"({
-            "timePeriod": { "year": 2026, "month": 6 },
-            "user": "octocat",
-            "usageItems": [
-                { "product": "Copilot AI Credits", "sku": "AI Credit", "unitType": "ai-credits", "netQuantity": 12.5 },
-                { "product": "Copilot AI Credits", "sku": "AI Credit", "unitType": "ai-credits", "netQuantity": "7.25" },
-                { "product": "Other", "sku": "Ignored", "unitType": "units", "netQuantity": 1000 }
-            ]
-        })",
-        error);
-
-    Check(usage.has_value(), "usage JSON should parse");
-    Check(usage->user == L"octocat", "usage user should parse");
-    CheckNear(usage->consumed_credits, 19.75, "only Copilot AI credit netQuantity values should be summed");
-    Check(error.empty(), "successful usage parse should not set error");
-}
-
-void TestRejectsMalformedUsageNetQuantity()
-{
-    std::wstring error;
-    const auto usage = githubcopilotquota::ParseUsageJson(
-        R"({
-            "user": "octocat",
-            "usageItems": [
-                { "product": "Copilot AI Credits", "sku": "AI Credit", "netQuantity": "7.25cr" }
-            ]
-        })",
-        error);
-
-    Check(!usage.has_value(), "malformed netQuantity should fail usage parsing");
-    Check(!error.empty(), "malformed netQuantity should set error");
-}
-
-void TestRejectsNonFiniteUsageNetQuantity()
-{
-    std::wstring nan_error;
-    const auto nan_usage = githubcopilotquota::ParseUsageJson(
-        R"({
-            "user": "octocat",
-            "usageItems": [
-                { "product": "Copilot AI Credits", "sku": "AI Credit", "netQuantity": "nan" }
-            ]
-        })",
-        nan_error);
-
-    Check(!nan_usage.has_value(), "nan netQuantity should fail usage parsing");
-    Check(!nan_error.empty(), "nan netQuantity should set error");
-
-    std::wstring inf_error;
-    const auto inf_usage = githubcopilotquota::ParseUsageJson(
-        R"({
-            "user": "octocat",
-            "usageItems": [
-                { "product": "Copilot AI Credits", "sku": "AI Credit", "netQuantity": "inf" }
-            ]
-        })",
-        inf_error);
-
-    Check(!inf_usage.has_value(), "inf netQuantity should fail usage parsing");
-    Check(!inf_error.empty(), "inf netQuantity should set error");
-}
-
-void TestRejectsUnquotedWhitespaceGarbageUsageNetQuantity()
-{
-    std::wstring error;
-    const auto usage = githubcopilotquota::ParseUsageJson(
-        R"({
-            "user": "octocat",
-            "usageItems": [
-                { "product": "Copilot AI Credits", "sku": "AI Credit", "netQuantity": 7.25 cr }
-            ]
-        })",
-        error);
-
-    Check(!usage.has_value(), "unquoted netQuantity with whitespace garbage should fail usage parsing");
-    Check(!error.empty(), "unquoted netQuantity with whitespace garbage should set error");
 }
 
 void TestParsesUserLogin()
@@ -818,79 +559,9 @@ void TestFormatsMonthlyResetCountdownInDays()
     Check(githubcopilotquota::FormatResetCountdown(now + 31 * 24 * 60 * 60, now) == L"31d", "31-day monthly reset should stay day-based");
 }
 
-void TestCalculatesBillingPeriod()
-{
-    const long long now = 1782086400;
-    const auto period = githubcopilotquota::CalculateBillingPeriod(15, now);
-
-    Check(!period.is_calendar_month_estimate, "configured billing day should be exact");
-    Check(period.start.year == 2026 && period.start.month == 6 && period.start.day == 15, "billing period start should be current cycle start");
-    Check(period.end.year == 2026 && period.end.month == 7 && period.end.day == 15, "billing period end should be next cycle start");
-    Check(period.reset_at == 1784073600, "reset timestamp should be next billing day UTC");
-    Check(!period.usage_dates.empty(), "billing period should include usage dates");
-    Check(period.usage_dates.front().day == 15, "first usage date should be start day");
-}
-
-void TestBillingPeriodUsageDatesStopAtToday()
-{
-    const long long now = 1782086400;
-    const auto period = githubcopilotquota::CalculateBillingPeriod(15, now);
-
-    Check(period.end.year == 2026 && period.end.month == 7 && period.end.day == 15, "billing period end should remain next reset");
-    Check(period.reset_at == 1784073600, "billing reset timestamp should remain next billing day UTC");
-    Check(!period.usage_dates.empty(), "billing usage dates should include elapsed cycle dates");
-    const auto last = period.usage_dates.back();
-    Check(last.year == 2026 && last.month == 6 && last.day == 22, "billing usage dates should stop at today");
-    for (const auto& date : period.usage_dates)
-    {
-        Check(IsOnOrBefore(date, githubcopilotquota::Date{2026, 6, 22}), "billing usage dates should not include future dates");
-    }
-}
-
-void TestCalculatesBillingPeriodBeforeBillingDay()
-{
-    const long long now = 1780704000;
-    const auto period = githubcopilotquota::CalculateBillingPeriod(15, now);
-
-    Check(!period.is_calendar_month_estimate, "configured billing day before current cycle should be exact");
-    Check(period.start.year == 2026 && period.start.month == 5 && period.start.day == 15, "pre-billing-day period start should be previous cycle start");
-    Check(period.end.year == 2026 && period.end.month == 6 && period.end.day == 15, "pre-billing-day period end should be current cycle end");
-    Check(period.reset_at == 1781481600, "pre-billing-day reset timestamp should be current billing day UTC");
-}
-
-void TestCalculatesBillingPeriodWithShorterMonth()
-{
-    const long long now = 1776816000;
-    const auto period = githubcopilotquota::CalculateBillingPeriod(31, now);
-
-    Check(!period.is_calendar_month_estimate, "configured billing day 31 should be exact");
-    Check(period.start.year == 2026 && period.start.month == 3 && period.start.day == 31, "short-month period start should use prior month billing day");
-    Check(period.end.year == 2026 && period.end.month == 4 && period.end.day == 30, "short-month period end should clamp to last day");
-    Check(period.reset_at == 1777507200, "short-month reset timestamp should be clamped billing day UTC");
-}
-
-void TestCalculatesCalendarMonthEstimate()
-{
-    const long long now = 1782086400;
-    const auto period = githubcopilotquota::CalculateCalendarMonthEstimate(now);
-
-    Check(period.is_calendar_month_estimate, "missing billing day should be estimate");
-    Check(period.start.year == 2026 && period.start.month == 6 && period.start.day == 1, "calendar estimate should start on first day");
-    Check(period.reset_at == 0, "calendar estimate should not claim a reset timestamp");
-}
-
-void TestBuildsUsagePaths()
-{
-    const githubcopilotquota::Date date{2026, 6, 22};
-
-    Check(githubcopilotquota::BuildUsagePath(L"octocat", date) == L"/users/octocat/settings/billing/ai_credit/usage?year=2026&month=6&day=22", "daily usage path should include year month day");
-    Check(githubcopilotquota::BuildMonthlyUsagePath(L"octocat", 2026, 6) == L"/users/octocat/settings/billing/ai_credit/usage?year=2026&month=6", "monthly usage path should include year month");
-}
-
-void TestFetchUsesConfigTokenAndClearsSnapshotToken()
+void TestFetchRejectsLegacyConfigToken()
 {
     FakeGitHubTransport fake;
-    fake.responses.push_back(FakeCopilotInternalResponse());
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
         LR"({"github_token":"config-token"})",
@@ -898,11 +569,28 @@ void TestFetchUsesConfigTokenAndClearsSnapshotToken()
         FakeGitHubRequest,
         &fake);
 
-    Check(result.success, "fetch helper should succeed with config token fallback");
+    Check(!result.success, "fetch helper should reject legacy config token fallback");
+    Check(fake.requests.empty(), "legacy config token should not authorize a request");
+    Check(result.error.find(L"github_token") == std::wstring::npos, "missing-token error should not mention legacy github_token");
+}
+
+void TestFetchUsesStoredTokenAndBuildsSnapshot()
+{
+    FakeGitHubTransport fake;
+    fake.responses.push_back(FakeCopilotInternalResponse());
+
+    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
+        LR"({"username":"octocat"})",
+        L"stored-token",
+        1782086400,
+        FakeGitHubRequest,
+        &fake);
+
+    Check(result.success, "fetch helper should succeed with stored token");
     Check(fake.requests.size() == 1, "Copilot internal fetch should issue one request");
     Check(!fake.requests.empty() && fake.requests.front().path == L"/copilot_internal/user", "Copilot internal fetch should use the internal user endpoint");
-    Check(!fake.requests.empty() && fake.requests.front().authorization == L"token config-token", "config token should be used for Copilot token Authorization header");
-    Check(result.snapshot.config.github_token.empty(), "snapshot config should not retain GitHub token");
+    Check(!fake.requests.empty() && fake.requests.front().authorization == L"token stored-token", "stored token should be used for Copilot token Authorization header");
+    Check(result.snapshot.plan == L"pro", "internal plan should be stored on the snapshot");
     CheckNear(result.snapshot.quota.total_credits, 300.0, "internal entitlement should become quota total");
     CheckNear(result.snapshot.quota.remaining_credits, 240.0, "internal remaining should become quota remaining");
     CheckNear(result.snapshot.quota.remaining_percent, 80.0, "internal percent_remaining should become quota remaining percent");
@@ -914,8 +602,9 @@ void TestFetchRequestHeadersUseCopilotInternalContract()
     FakeGitHubTransport fake;
     fake.responses.push_back(FakeCopilotInternalResponse());
 
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
-        LR"({"github_token":"config-token"})",
+    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
+        L"",
+        L"stored-token",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -941,7 +630,7 @@ void TestFetchStoredTokenWorksWithoutConfigFile()
         FakeGitHubRequest,
         &fake);
 
-    Check(result.success, "stored credential token should fetch without plan, total_credits, billing_day, or username config");
+    Check(result.success, "stored credential token should fetch without a config file");
     Check(fake.requests.size() == 1, "config-free stored credential fetch should issue one Copilot internal request");
     CheckNear(result.snapshot.quota.total_credits, 300.0, "config-free fetch should use internal entitlement as total");
     CheckNear(result.snapshot.quota.remaining_percent, 80.0, "config-free fetch should use internal percent remaining");
@@ -952,7 +641,7 @@ void TestFetchRejectsStoredTokenWithCrLf()
     FakeGitHubTransport fake;
 
     const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
-        LR"({"github_token":"config-token","username":"octocat","total_credits":100})",
+        LR"({"username":"octocat"})",
         L"stored-token\r\nX-Injected: value",
         1782086400,
         FakeGitHubRequest,
@@ -964,29 +653,14 @@ void TestFetchRejectsStoredTokenWithCrLf()
     Check(fake.requests.empty(), "stored token with CR/LF should be rejected before transport request");
 }
 
-void TestFetchRejectsConfigTokenWithCrLf()
-{
-    FakeGitHubTransport fake;
-
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
-        L"{\"github_token\":\"config-token\nX-Injected: value\",\"username\":\"octocat\",\"total_credits\":100}",
-        1782086400,
-        FakeGitHubRequest,
-        &fake);
-
-    Check(!result.success, "config token with CR/LF should fail fetch helper");
-    Check(result.error == L"GitHub token contains invalid characters.", "config token CR/LF error should be stable and non-secret");
-    Check(result.error.find(L"config-token") == std::wstring::npos, "config token CR/LF error should not echo token");
-    Check(fake.requests.empty(), "config token with CR/LF should be rejected before transport request");
-}
-
 void TestFetchMissingUsernameCallsUserEndpoint()
 {
     FakeGitHubTransport fake;
     fake.responses.push_back(FakeCopilotInternalResponse());
 
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
-        LR"({"github_token":"config-token"})",
+    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
+        L"",
+        L"stored-token",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -1001,8 +675,9 @@ void TestFetchConfiguredUsernameSkipsUserEndpoint()
     FakeGitHubTransport fake;
     fake.responses.push_back(FakeCopilotInternalResponse());
 
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
-        LR"({"github_token":"config-token","username":"octocat"})",
+    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
+        LR"({"username":"octocat"})",
+        L"stored-token",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -1019,8 +694,9 @@ void TestFetchAuthErrorsUseStableMessage()
         FakeGitHubTransport fake;
         fake.responses.push_back(githubcopilotquota::GitHubHttpResponse{status, "{}"});
 
-        const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
-            LR"({"github_token":"config-token"})",
+        const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
+            L"",
+            L"stored-token",
             1782086400,
             FakeGitHubRequest,
             &fake);
@@ -1036,8 +712,9 @@ void TestFetchNonSuccessHttpStatusIncludesStatus()
     FakeGitHubTransport fake;
     fake.responses.push_back(githubcopilotquota::GitHubHttpResponse{500, "{}"});
 
-    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJson(
-        LR"({"github_token":"config-token"})",
+    const auto result = githubcopilotquota::FetchQuotaSnapshotFromConfigJsonWithStoredToken(
+        L"",
+        L"stored-token",
         1782086400,
         FakeGitHubRequest,
         &fake);
@@ -1069,24 +746,12 @@ void TestLiveFetchWhenRequested()
 
 int main()
 {
-    TestParsesConfigWithExplicitAllowance();
+    TestParsesCurrentConfigFields();
     TestResolvesGitHubTokenPrecedence();
     TestParsesDeviceCodeResponse();
     TestParsesAccessTokenResponse();
     TestParsesAccessTokenPendingAndSlowDownErrors();
     TestCredentialTokenRoundTripWithTestTarget();
-    TestRejectsMalformedConfigTotalCredits();
-    TestRejectsNonFiniteConfigTotalCredits();
-    TestRejectsUnquotedWhitespaceGarbageTotalCredits();
-    TestRejectsFractionalBillingDay();
-    TestRejectsUnquotedWhitespaceGarbageBillingDay();
-    TestResolvesAllowanceFromPlan();
-    TestExplicitAllowanceOverridesPlan();
-    TestRejectsMissingAllowance();
-    TestParsesUsageReport();
-    TestRejectsMalformedUsageNetQuantity();
-    TestRejectsNonFiniteUsageNetQuantity();
-    TestRejectsUnquotedWhitespaceGarbageUsageNetQuantity();
     TestParsesUserLogin();
     TestParsesCopilotInternalPremiumQuota();
     TestParsesCopilotInternalLimitedQuotaFallback();
@@ -1098,20 +763,14 @@ int main()
     TestFormatsQuotaValue();
     TestFormatsQuotaValueWithDisplayOptions();
     TestFormatsMonthlyResetCountdownInDays();
-    TestCalculatesBillingPeriod();
-    TestBillingPeriodUsageDatesStopAtToday();
-    TestCalculatesBillingPeriodBeforeBillingDay();
-    TestCalculatesBillingPeriodWithShorterMonth();
-    TestCalculatesCalendarMonthEstimate();
-    TestBuildsUsagePaths();
-    TestFetchUsesConfigTokenAndClearsSnapshotToken();
+    TestFetchRejectsLegacyConfigToken();
+    TestFetchUsesStoredTokenAndBuildsSnapshot();
     TestFetchRequestHeadersUseCopilotInternalContract();
-    TestFetchUsesStoredTokenBeforeConfigToken();
+    TestFetchUsesStoredTokenWhenLegacyConfigTokenIsPresent();
     TestRunGitHubDeviceLoginStoresTokenAfterVerification();
     TestRunGitHubDeviceLoginBuildsCompleteUrlWhenGitHubOmitsIt();
     TestFetchStoredTokenWorksWithoutConfigFile();
     TestFetchRejectsStoredTokenWithCrLf();
-    TestFetchRejectsConfigTokenWithCrLf();
     TestFetchMissingUsernameCallsUserEndpoint();
     TestFetchConfiguredUsernameSkipsUserEndpoint();
     TestFetchAuthErrorsUseStableMessage();

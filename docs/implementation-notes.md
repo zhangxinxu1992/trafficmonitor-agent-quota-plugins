@@ -63,7 +63,7 @@ The plugin follows the Win-CodexBar Copilot provider approach and queries GitHub
 Token lookup:
 
 - Prefer the plugin-managed GitHub OAuth token in Windows Credential Manager.
-- Fall back to optional plaintext `github_token` in `config.json`.
+- Plaintext `github_token` config and token environment-variable overrides are not supported.
 
 The preferred user setup path is the plugin options dialog:
 
@@ -104,7 +104,7 @@ Response fields used:
 - `quota_snapshots.*.percent_remaining`
 - fallback: `monthly_quotas` plus `limited_user_quotas`
 
-The internal response provides quota totals, remaining values, remaining percentage, and reset date. `plan`, `total_credits`, and `billing_day` are therefore not required for normal operation.
+The internal response provides quota totals, remaining values, remaining percentage, and reset date. GitHub billing API allowance fields such as `plan`, `total_credits`, and `billing_day` are not part of the active configuration.
 
 Optional configuration is stored at:
 
@@ -112,7 +112,6 @@ Optional configuration is stored at:
 
 Currently useful optional config keys:
 
-- `github_token`: legacy plaintext fallback token when the stored OAuth token is not set.
 - `username`: displayed in the tooltip only; no `/user` request is needed for quota fetching.
 - `quota_display`: `remaining` or `used`.
 - `reset_display`: `countdown` or `time`.
@@ -190,7 +189,7 @@ The initial display value is ` ...`. Error display is ` ERR` unless a previous s
 
 ## TrafficMonitor Config Notes
 
-The user's TrafficMonitor install path during development was:
+A local test install commonly uses:
 
 - `C:\Apps\TrafficMonitor`
 

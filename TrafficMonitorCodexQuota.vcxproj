@@ -79,6 +79,10 @@
     <ClInclude Include="src\CodexQuotaCore.h" />
     <ClInclude Include="src\CodexQuotaFetch.h" />
     <ClInclude Include="src\PluginVersion.h" />
+    <ClInclude Include="src\PluginVersionResource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\TrafficMonitorCodexQuota.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
