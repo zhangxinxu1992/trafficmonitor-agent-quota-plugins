@@ -18,6 +18,10 @@ constexpr const wchar_t* kCopilotInternalUserAgent = L"GitHubCopilotChat/0.26.7"
 constexpr const wchar_t* kCopilotEditorVersion = L"vscode/1.96.2";
 constexpr const wchar_t* kCopilotEditorPluginVersion = L"copilot-chat/0.26.7";
 constexpr const wchar_t* kGitHubOAuthCredentialTarget = L"TrafficMonitorGitHubCopilotQuota:GitHubOAuth";
+constexpr const wchar_t* kGitHubTokenEnvVar = L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN";
+constexpr const wchar_t* kLegacyGitHubTokenEnvVar = L"COPILOT_QUOTA_GITHUB_TOKEN";
+constexpr const wchar_t* kSkipStoredCredentialEnvVar = L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL";
+constexpr const wchar_t* kLegacySkipStoredCredentialEnvVar = L"GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL";
 constexpr const wchar_t* kGitHubWebHost = L"github.com";
 constexpr const char* kGitHubOAuthClientId = "Iv1.b507a08c87ecfe98";
 
@@ -195,11 +199,11 @@ bool ReadFileUtf8AsWide(const std::wstring& path, std::wstring& content, std::ws
         const DWORD code = GetLastError();
         if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
         {
-            error = L"GitHub Copilot quota config not found: " + path;
+            error = L"TrafficMonitor GitHub Copilot quota config not found: " + path;
         }
         else
         {
-            error = L"Failed to open GitHub Copilot quota config " + path + L": " + WindowsErrorMessage(code);
+            error = L"Failed to open TrafficMonitor GitHub Copilot quota config " + path + L": " + WindowsErrorMessage(code);
         }
         return false;
     }
@@ -207,7 +211,7 @@ bool ReadFileUtf8AsWide(const std::wstring& path, std::wstring& content, std::ws
     LARGE_INTEGER size{};
     if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > 1024 * 1024)
     {
-        error = L"Invalid GitHub Copilot quota config size.";
+        error = L"Invalid TrafficMonitor GitHub Copilot quota config size.";
         CloseHandle(file);
         return false;
     }
@@ -220,7 +224,7 @@ bool ReadFileUtf8AsWide(const std::wstring& path, std::wstring& content, std::ws
 
     if (!ok)
     {
-        error = L"Failed to read GitHub Copilot quota config " + path + L": " + WindowsErrorMessage(GetLastError());
+        error = L"Failed to read TrafficMonitor GitHub Copilot quota config " + path + L": " + WindowsErrorMessage(GetLastError());
         return false;
     }
     bytes.resize(bytes_read);
@@ -240,7 +244,7 @@ bool ReadFileUtf8AsWide(const std::wstring& path, std::wstring& content, std::ws
         0);
     if (wide_length <= 0)
     {
-        error = L"Failed to decode GitHub Copilot quota config as UTF-8.";
+        error = L"Failed to decode TrafficMonitor GitHub Copilot quota config as UTF-8.";
         return false;
     }
 
@@ -579,6 +583,17 @@ std::wstring GetGitHubOAuthCredentialTarget()
     return kGitHubOAuthCredentialTarget;
 }
 
+std::wstring ReadGitHubTokenOverrideFromEnvironment()
+{
+    const auto scoped_token = Trim(GetEnvVar(kGitHubTokenEnvVar));
+    if (!scoped_token.empty())
+    {
+        return scoped_token;
+    }
+
+    return Trim(GetEnvVar(kLegacyGitHubTokenEnvVar));
+}
+
 std::optional<std::wstring> ReadCredentialToken(const std::wstring& target, std::wstring& error)
 {
     error.clear();
@@ -591,7 +606,7 @@ std::optional<std::wstring> ReadCredentialToken(const std::wstring& target, std:
         {
             return std::nullopt;
         }
-        error = L"Failed to read GitHub token credential: " + WindowsErrorMessage(code);
+        error = L"Failed to read TrafficMonitor GitHub token credential: " + WindowsErrorMessage(code);
         return std::nullopt;
     }
 
@@ -604,7 +619,7 @@ std::optional<std::wstring> ReadCredentialToken(const std::wstring& target, std:
     }
     else
     {
-        error = L"Stored GitHub token credential has invalid size.";
+        error = L"Stored TrafficMonitor GitHub token credential has invalid size.";
     }
     CredFree(credential);
 
@@ -614,6 +629,33 @@ std::optional<std::wstring> ReadCredentialToken(const std::wstring& target, std:
         return std::nullopt;
     }
     return token;
+}
+
+std::optional<std::wstring> ReadCredentialUsername(const std::wstring& target, std::wstring& error)
+{
+    error.clear();
+
+    PCREDENTIALW credential = nullptr;
+    if (!CredReadW(target.c_str(), CRED_TYPE_GENERIC, 0, &credential))
+    {
+        const auto code = GetLastError();
+        if (code == ERROR_NOT_FOUND)
+        {
+            return std::nullopt;
+        }
+        error = L"Failed to read TrafficMonitor GitHub token credential: " + WindowsErrorMessage(code);
+        return std::nullopt;
+    }
+
+    std::wstring username = credential->UserName == nullptr ? std::wstring() : std::wstring(credential->UserName);
+    CredFree(credential);
+
+    username = Trim(username);
+    if (username.empty())
+    {
+        return std::nullopt;
+    }
+    return username;
 }
 
 bool WriteCredentialToken(
@@ -627,14 +669,14 @@ bool WriteCredentialToken(
     const auto trimmed_token = Trim(token);
     if (trimmed_token.empty())
     {
-        error = L"GitHub token is empty.";
+        error = L"TrafficMonitor GitHub token is empty.";
         return false;
     }
 
     const auto blob_size = trimmed_token.size() * sizeof(wchar_t);
     if (blob_size > CRED_MAX_CREDENTIAL_BLOB_SIZE)
     {
-        error = L"GitHub token is too large for Windows Credential Manager.";
+        error = L"TrafficMonitor GitHub token is too large for Windows Credential Manager.";
         return false;
     }
 
@@ -648,7 +690,7 @@ bool WriteCredentialToken(
 
     if (!CredWriteW(&credential, 0))
     {
-        error = L"Failed to write GitHub token credential: " + WindowsErrorMessage(GetLastError());
+        error = L"Failed to write TrafficMonitor GitHub token credential: " + WindowsErrorMessage(GetLastError());
         return false;
     }
     return true;
@@ -667,7 +709,7 @@ bool DeleteCredentialToken(const std::wstring& target, std::wstring& error)
     {
         return true;
     }
-    error = L"Failed to delete GitHub token credential: " + WindowsErrorMessage(code);
+    error = L"Failed to delete TrafficMonitor GitHub token credential: " + WindowsErrorMessage(code);
     return false;
 }
 
@@ -994,9 +1036,10 @@ FetchResult FetchQuotaSnapshot()
     FetchResult result;
 
     std::wstring config_json;
-    const auto env_token = GetEnvVar(L"COPILOT_QUOTA_GITHUB_TOKEN");
+    const auto env_token = ReadGitHubTokenOverrideFromEnvironment();
     std::wstring credential_error;
-    const auto skip_stored_credential = !GetEnvVar(L"GITHUB_COPILOT_QUOTA_SKIP_STORED_CREDENTIAL").empty();
+    const auto skip_stored_credential = !Trim(GetEnvVar(kSkipStoredCredentialEnvVar)).empty()
+        || !Trim(GetEnvVar(kLegacySkipStoredCredentialEnvVar)).empty();
     const auto stored_token = skip_stored_credential
         ? std::wstring()
         : ReadCredentialToken(GetGitHubOAuthCredentialTarget(), credential_error).value_or(L"");

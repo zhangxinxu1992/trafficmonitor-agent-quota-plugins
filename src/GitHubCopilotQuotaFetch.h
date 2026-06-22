@@ -70,7 +70,9 @@ struct DeviceLoginResult
 
 std::wstring GetDefaultConfigPath();
 std::wstring GetGitHubOAuthCredentialTarget();
+std::wstring ReadGitHubTokenOverrideFromEnvironment();
 std::optional<std::wstring> ReadCredentialToken(const std::wstring& target, std::wstring& error);
+std::optional<std::wstring> ReadCredentialUsername(const std::wstring& target, std::wstring& error);
 bool WriteCredentialToken(
     const std::wstring& target,
     const std::wstring& token,

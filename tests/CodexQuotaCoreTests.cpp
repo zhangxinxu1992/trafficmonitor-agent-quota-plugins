@@ -129,6 +129,53 @@ void TestFormatsRemainingWindowText()
     Check(codexquota::FormatRemainingWindowText(24.4, 0, 1700000000) == L"76%", "missing reset time should omit countdown");
 }
 
+long long LocalTimestamp(int year, int month, int day, int hour, int minute)
+{
+    std::tm local{};
+    local.tm_year = year - 1900;
+    local.tm_mon = month - 1;
+    local.tm_mday = day;
+    local.tm_hour = hour;
+    local.tm_min = minute;
+    local.tm_isdst = -1;
+    return static_cast<long long>(std::mktime(&local));
+}
+
+void TestParsesDisplayConfig()
+{
+    std::wstring error;
+    const auto config = codexquota::ParseConfigJson(
+        LR"({
+            "quota_display": "used",
+            "reset_display": "time"
+        })",
+        error);
+
+    Check(config.has_value(), "Codex display config should parse");
+    Check(config->display.quota_display == codexquota::QuotaDisplayMode::Used, "Codex quota display should parse as used");
+    Check(config->display.reset_display == codexquota::ResetDisplayMode::Time, "Codex reset display should parse as time");
+    Check(error.empty(), "successful Codex display config parse should not set error");
+}
+
+void TestFormatsWindowTextWithDisplayOptions()
+{
+    codexquota::DisplayOptions options;
+    const auto now = LocalTimestamp(2026, 6, 22, 10, 0);
+    const auto same_day_reset = LocalTimestamp(2026, 6, 22, 18, 30);
+    const auto next_day_reset = LocalTimestamp(2026, 6, 23, 8, 5);
+
+    options.quota_display = codexquota::QuotaDisplayMode::Used;
+    Check(codexquota::FormatWindowText(24.4, same_day_reset, now, options) == L"24% 8h 30m",
+        "used display should show used percent with countdown");
+
+    options.quota_display = codexquota::QuotaDisplayMode::Remaining;
+    options.reset_display = codexquota::ResetDisplayMode::Time;
+    Check(codexquota::FormatWindowText(24.4, same_day_reset, now, options) == L"76% 18:30",
+        "same-day reset time should show local HH:MM");
+    Check(codexquota::FormatWindowText(24.4, next_day_reset, now, options) == L"76% 06-23 08:05",
+        "cross-day reset time should show local month-day and time");
+}
+
 void TestFormatsCountdown()
 {
     Check(codexquota::FormatResetCountdown(1700000000, 1700000000) == L"now", "past reset should be now");
@@ -140,7 +187,8 @@ void TestFormatsCountdown()
 void TestLiveFetchWhenRequested()
 {
     wchar_t flag[8]{};
-    if (GetEnvironmentVariableW(L"CODEX_QUOTA_RUN_LIVE_TEST", flag, 8) == 0)
+    if (GetEnvironmentVariableW(L"TRAFFICMONITOR_CODEX_QUOTA_RUN_LIVE_TEST", flag, 8) == 0
+        && GetEnvironmentVariableW(L"CODEX_QUOTA_RUN_LIVE_TEST", flag, 8) == 0)
     {
         return;
     }
@@ -165,6 +213,8 @@ int main()
     TestFormatsUsedPercent();
     TestFormatsRemainingPercent();
     TestFormatsRemainingWindowText();
+    TestParsesDisplayConfig();
+    TestFormatsWindowTextWithDisplayOptions();
     TestFormatsCountdown();
     TestLiveFetchWhenRequested();
 

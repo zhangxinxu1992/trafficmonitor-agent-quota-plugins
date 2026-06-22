@@ -6,6 +6,25 @@
 
 namespace githubcopilotquota
 {
+enum class QuotaDisplayMode
+{
+    Remaining,
+    Used
+};
+
+enum class ResetDisplayMode
+{
+    Countdown,
+    Time
+};
+
+struct DisplayOptions
+{
+    QuotaDisplayMode quota_display{QuotaDisplayMode::Remaining};
+    ResetDisplayMode reset_display{ResetDisplayMode::Countdown};
+    bool show_remaining_credits{true};
+};
+
 struct PluginConfig
 {
     std::wstring github_token;
@@ -14,6 +33,7 @@ struct PluginConfig
     double total_credits{};
     int billing_day{};
     bool has_billing_day{};
+    DisplayOptions display;
 };
 
 enum class GitHubTokenSource
@@ -106,6 +126,7 @@ struct OAuthTokenResponse
 };
 
 std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstring& error);
+std::wstring SerializeConfigJson(const PluginConfig& config);
 std::optional<GitHubTokenChoice> ResolveGitHubToken(
     const std::wstring& env_token,
     const std::wstring& stored_token,
@@ -129,5 +150,7 @@ std::wstring BuildMonthlyUsagePath(const std::wstring& username, int year, int m
 std::wstring FormatCreditCount(double credits);
 std::wstring FormatPercent(double percent);
 std::wstring FormatResetCountdown(long long reset_at, long long now);
+std::wstring FormatResetTime(long long reset_at, long long now);
 std::wstring FormatQuotaValue(const Quota& quota, long long reset_at, long long now);
+std::wstring FormatQuotaValue(const Quota& quota, long long reset_at, long long now, const DisplayOptions& options);
 }

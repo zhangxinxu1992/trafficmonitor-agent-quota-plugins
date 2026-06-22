@@ -54,6 +54,42 @@ struct FakeDeviceLoginCallbacks
     std::vector<std::pair<std::wstring, std::wstring>> stored_tokens;
 };
 
+std::wstring ReadEnvironmentVariable(const wchar_t* name)
+{
+    const DWORD size = GetEnvironmentVariableW(name, nullptr, 0);
+    if (size == 0)
+    {
+        return {};
+    }
+
+    std::wstring value(size, L'\0');
+    const DWORD written = GetEnvironmentVariableW(name, value.data(), size);
+    value.resize(written);
+    return value;
+}
+
+class EnvironmentVariableGuard
+{
+public:
+    EnvironmentVariableGuard(const wchar_t* name, const wchar_t* value)
+        : m_name(name),
+          m_had_value(GetEnvironmentVariableW(name, nullptr, 0) != 0),
+          m_original(ReadEnvironmentVariable(name))
+    {
+        SetEnvironmentVariableW(m_name.c_str(), value);
+    }
+
+    ~EnvironmentVariableGuard()
+    {
+        SetEnvironmentVariableW(m_name.c_str(), m_had_value ? m_original.c_str() : nullptr);
+    }
+
+private:
+    std::wstring m_name;
+    bool m_had_value{};
+    std::wstring m_original;
+};
+
 bool FakeGitHubRequest(
     const githubcopilotquota::GitHubHttpRequest& request,
     githubcopilotquota::GitHubHttpResponse& response,
@@ -174,8 +210,28 @@ void TestResolvesGitHubTokenPrecedence()
     error.clear();
     const auto missing_choice = githubcopilotquota::ResolveGitHubToken(L" ", L" ", config, error);
     Check(!missing_choice.has_value(), "missing token choice should fail");
-    Check(error == L"Missing GitHub token. Sign in from plugin options, set COPILOT_QUOTA_GITHUB_TOKEN, or set github_token in config.json.",
-        "missing token error should mention options sign-in");
+    Check(error.find(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN") != std::wstring::npos,
+        "missing token error should mention the TrafficMonitor-scoped token variable");
+    Check(error.find(L"COPILOT_QUOTA_GITHUB_TOKEN") != std::wstring::npos,
+        "missing token error should mention legacy token compatibility");
+}
+
+void TestReadsTrafficMonitorScopedGitHubTokenEnvironmentOverride()
+{
+    EnvironmentVariableGuard scoped_token_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN", L" scoped-token ");
+    EnvironmentVariableGuard legacy_token_guard(L"COPILOT_QUOTA_GITHUB_TOKEN", L"legacy-token");
+
+    Check(githubcopilotquota::ReadGitHubTokenOverrideFromEnvironment() == L"scoped-token",
+        "TrafficMonitor-scoped token environment variable should override legacy token variable");
+}
+
+void TestReadsLegacyGitHubTokenEnvironmentOverride()
+{
+    EnvironmentVariableGuard scoped_token_guard(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN", nullptr);
+    EnvironmentVariableGuard legacy_token_guard(L"COPILOT_QUOTA_GITHUB_TOKEN", L" legacy-token ");
+
+    Check(githubcopilotquota::ReadGitHubTokenOverrideFromEnvironment() == L"legacy-token",
+        "legacy token environment variable should remain supported");
 }
 
 void TestParsesDeviceCodeResponse()
@@ -250,6 +306,10 @@ void TestCredentialTokenRoundTripWithTestTarget()
     const auto token = githubcopilotquota::ReadCredentialToken(target, error);
     Check(token.has_value(), "credential token read should succeed");
     Check(token.value_or(L"") == L"stored-oauth-token", "credential token read should return original token");
+
+    const auto username = githubcopilotquota::ReadCredentialUsername(target, error);
+    Check(username.has_value(), "credential username read should succeed");
+    Check(username.value_or(L"") == L"octocat", "credential username read should return original username");
 
     error.clear();
     Check(githubcopilotquota::DeleteCredentialToken(target, error), "credential token delete should succeed");
@@ -413,7 +473,10 @@ void TestParsesConfigWithExplicitAllowance()
             "username": "octocat",
             "plan": "pro",
             "total_credits": 2345,
-            "billing_day": 15
+            "billing_day": 15,
+            "quota_display": "used",
+            "reset_display": "time",
+            "show_remaining_credits": false
         })",
         error);
 
@@ -424,6 +487,9 @@ void TestParsesConfigWithExplicitAllowance()
     CheckNear(config->total_credits, 2345.0, "total credits should parse");
     Check(config->has_billing_day, "billing day should be marked present");
     Check(config->billing_day == 15, "billing day should parse");
+    Check(config->display.quota_display == githubcopilotquota::QuotaDisplayMode::Used, "quota display should parse");
+    Check(config->display.reset_display == githubcopilotquota::ResetDisplayMode::Time, "reset display should parse");
+    Check(!config->display.show_remaining_credits, "remaining credits display flag should parse");
     Check(error.empty(), "successful config parse should not set error");
 }
 
@@ -756,6 +822,37 @@ void TestFormatsQuotaValue()
     Check(githubcopilotquota::FormatQuotaValue(quota, 0, now) == L" 82% 1.2kcr", "quota value should omit missing reset");
 }
 
+long long LocalTimestamp(int year, int month, int day, int hour, int minute)
+{
+    std::tm local{};
+    local.tm_year = year - 1900;
+    local.tm_mon = month - 1;
+    local.tm_mday = day;
+    local.tm_hour = hour;
+    local.tm_min = minute;
+    local.tm_isdst = -1;
+    return static_cast<long long>(std::mktime(&local));
+}
+
+void TestFormatsQuotaValueWithDisplayOptions()
+{
+    const auto quota = githubcopilotquota::CalculateQuota(1500.0, 270.0);
+    const auto now = LocalTimestamp(2026, 6, 22, 10, 0);
+    const auto reset = LocalTimestamp(2026, 6, 22, 18, 30);
+
+    githubcopilotquota::DisplayOptions options;
+    options.quota_display = githubcopilotquota::QuotaDisplayMode::Used;
+    options.reset_display = githubcopilotquota::ResetDisplayMode::Time;
+    options.show_remaining_credits = false;
+
+    Check(githubcopilotquota::FormatQuotaValue(quota, reset, now, options) == L" 18% 18:30",
+        "used GitHub value should omit credits when configured and show reset time");
+
+    options.show_remaining_credits = true;
+    Check(githubcopilotquota::FormatQuotaValue(quota, reset, now, options) == L" 18% 1.2kcr 18:30",
+        "GitHub remaining credits should remain remaining credits even with used percent");
+}
+
 void TestFormatsMonthlyResetCountdownInDays()
 {
     const long long now = 1782086400;
@@ -1021,7 +1118,8 @@ void TestFetchNonSuccessHttpStatusIncludesStatus()
 void TestLiveFetchWhenRequested()
 {
     wchar_t flag[8]{};
-    if (GetEnvironmentVariableW(L"GITHUB_COPILOT_QUOTA_RUN_LIVE_TEST", flag, 8) == 0)
+    if (GetEnvironmentVariableW(L"TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_RUN_LIVE_TEST", flag, 8) == 0
+        && GetEnvironmentVariableW(L"GITHUB_COPILOT_QUOTA_RUN_LIVE_TEST", flag, 8) == 0)
     {
         return;
     }
@@ -1041,6 +1139,8 @@ int main()
 {
     TestParsesConfigWithExplicitAllowance();
     TestResolvesGitHubTokenPrecedence();
+    TestReadsTrafficMonitorScopedGitHubTokenEnvironmentOverride();
+    TestReadsLegacyGitHubTokenEnvironmentOverride();
     TestParsesDeviceCodeResponse();
     TestParsesAccessTokenResponse();
     TestParsesAccessTokenPendingAndSlowDownErrors();
@@ -1066,6 +1166,7 @@ int main()
     TestCalculatesRemainingQuota();
     TestClampsOverage();
     TestFormatsQuotaValue();
+    TestFormatsQuotaValueWithDisplayOptions();
     TestFormatsMonthlyResetCountdownInDays();
     TestCalculatesBillingPeriod();
     TestBillingPeriodUsageDatesStopAtToday();

@@ -1,28 +1,39 @@
 # TrafficMonitor Codex Quota Plugin
 
-TrafficMonitor x64 plugin that displays remaining Codex quota percentage.
+TrafficMonitor x64 plugin that displays Codex quota percentage.
 
 Display items:
 
-- `5h:`: remaining percent of the 5-hour Codex window plus reset countdown.
-- `7d:`: remaining percent of the 7-day Codex window plus reset countdown.
+- `5h:`: 5-hour Codex window quota plus reset information.
+- `7d:`: 7-day Codex window quota plus reset information.
 
 Example taskbar values:
 
 - `5h: 69% 42m`
 - `7d: 89% 6d 1h`
 
-The suffix after the percent is the countdown until that quota window resets. The displayed value includes a leading space because TrafficMonitor trims ordinary whitespace at the edges of plugin labels. The plugin reserves extra width so values such as `6d 23h` are not truncated.
+By default the percent is remaining quota and the suffix is the countdown until that quota window resets. The displayed value includes a leading space because TrafficMonitor trims ordinary whitespace at the edges of plugin labels. The plugin reserves width from the current display mode: countdown mode uses compact countdown samples, while reset-time mode reserves enough room for values such as `12-31 23:59`.
 
 The Codex plugin reads the local Codex CLI auth file and calls the same ChatGPT backend usage endpoint used by Win-CodexBar.
 
-## GitHub Copilot Quota Plugin
+Optional Codex display configuration is stored at `%APPDATA%\TrafficMonitorCodexQuota\config.json` and can be changed from the plugin options dialog:
+
+```json
+{
+  "quota_display": "remaining",
+  "reset_display": "countdown"
+}
+```
+
+`quota_display` can be `remaining` or `used`. `reset_display` can be `countdown` or `time`; time mode shows local reset time such as `18:30` or `06-23 18:30`.
+
+## TrafficMonitor GitHub Copilot Quota Plugin
 
 This repository also builds `TrafficMonitorGitHubCopilotQuota.dll`, a separate x64 TrafficMonitor plugin for GitHub Copilot quota.
 
 The plugin exposes one display item:
 
-- `GC:`: remaining GitHub Copilot quota percentage, compact remaining-count value, and optional reset countdown.
+- `GC:`: GitHub Copilot quota percentage, optional compact remaining-credit value, and reset information.
 
 Example taskbar values:
 
@@ -31,26 +42,31 @@ Example taskbar values:
 
 The value text starts with a regular space, for example label `GC:` plus value ` 82% 1.2kcr 12d`, because TrafficMonitor trims ordinary whitespace at plugin-label edges.
 
-Recommended authentication is the plugin options dialog:
+Recommended authentication is the TrafficMonitor plugin options dialog:
 
-1. Open the GitHub Copilot quota plugin options in TrafficMonitor.
+1. Open the TrafficMonitor GitHub Copilot quota plugin options.
 2. Click `Sign in with GitHub`.
 3. The plugin shows the GitHub device code and copies it to the clipboard.
 4. Complete the GitHub browser/device-code sign-in. If GitHub asks for a code, paste the copied code.
 
-The plugin stores the resulting OAuth token in Windows Credential Manager as a protected local credential. The sign-in flow is only started by the user from options; the background quota refresh never opens a browser.
+The plugin stores the resulting OAuth token in Windows Credential Manager as a protected local credential for TrafficMonitor. The sign-in flow is only started by the user from options; the background quota refresh never opens a browser.
 
-`COPILOT_QUOTA_GITHUB_TOKEN` is still supported as the highest-priority override. With that environment variable set, no config file or stored credential is required.
+`TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN` is the preferred TrafficMonitor-scoped token override. With that environment variable set, no config file or stored credential is required. The older `COPILOT_QUOTA_GITHUB_TOKEN` name remains supported only as a legacy fallback.
 
 Optional configuration is stored at `%APPDATA%\TrafficMonitorGitHubCopilotQuota\config.json`. Use it only when you want a tooltip username or a legacy plaintext fallback token:
 
 ```json
 {
-  "username": "YOUR_GITHUB_LOGIN"
+  "username": "YOUR_GITHUB_LOGIN",
+  "quota_display": "remaining",
+  "reset_display": "countdown",
+  "show_remaining_credits": true
 }
 ```
 
-Plaintext token fallback is still supported for compatibility, but plugin options sign-in or the environment variable is preferred:
+`quota_display` can be `remaining` or `used`. `reset_display` can be `countdown` or `time`. `show_remaining_credits` controls whether the value includes the remaining credit count such as `1.2kcr`; when the percent is set to `used`, the credit count is still remaining credits. The taskbar sample width follows these options, so hidden credit counts do not reserve extra space.
+
+Plaintext token fallback is still supported for compatibility, but plugin options sign-in or the TrafficMonitor-scoped environment variable is preferred:
 
 ```json
 {
@@ -83,11 +99,11 @@ $msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Curren
 .\build\x64\Release\GitHubCopilotQuotaTests.exe
 .\build\x64\Release\GitHubCopilotPluginSmokeTests.exe
 
-$env:CODEX_QUOTA_RUN_LIVE_TEST = '1'
+$env:TRAFFICMONITOR_CODEX_QUOTA_RUN_LIVE_TEST = '1'
 .\build\x64\Release\CodexQuotaTests.exe
 .\build\x64\Release\PluginSmokeTests.exe
 
-$env:GITHUB_COPILOT_QUOTA_RUN_LIVE_TEST = '1'
+$env:TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_RUN_LIVE_TEST = '1'
 .\build\x64\Release\GitHubCopilotQuotaTests.exe
 ```
 

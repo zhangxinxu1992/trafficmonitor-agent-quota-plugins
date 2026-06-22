@@ -16,11 +16,11 @@ The plugin follows the Win-CodexBar approach for locating Codex credentials and 
 
 ## Data Source
 
-Credential lookup:
+Codex credential lookup:
 
 - Use `%CODEX_HOME%\auth.json` when `CODEX_HOME` is set.
 - Otherwise use `%USERPROFILE%\.codex\auth.json`.
-- Prefer `OPENAI_API_KEY` when present.
+- Prefer the `OPENAI_API_KEY` field when it is present in the Codex auth file.
 - Otherwise use `tokens.access_token` from `auth.json`.
 - Send `ChatGPT-Account-Id` when `tokens.account_id` is present.
 
@@ -35,9 +35,20 @@ Fields used:
 - `rate_limit.secondary_window.used_percent`
 - `rate_limit.secondary_window.reset_at`
 
-The displayed percentage is remaining percentage: `100 - used_percent`.
+The default displayed percentage is remaining percentage: `100 - used_percent`. The user can switch the display to the raw used percentage from the plugin options dialog.
 
-## GitHub Copilot Quota Plugin
+Optional Codex display configuration is stored at:
+
+- `%APPDATA%\TrafficMonitorCodexQuota\config.json`
+
+Supported Codex display config keys:
+
+- `quota_display`: `remaining` or `used`.
+- `reset_display`: `countdown` or `time`.
+
+Missing config uses `remaining` plus `countdown`.
+
+## TrafficMonitor GitHub Copilot Quota Plugin
 
 The GitHub Copilot plugin is built as `TrafficMonitorGitHubCopilotQuota.dll`, separate from the Codex plugin. It exposes one TrafficMonitor item:
 
@@ -51,7 +62,8 @@ The plugin follows the Win-CodexBar Copilot provider approach and queries GitHub
 
 Token lookup:
 
-- Prefer `COPILOT_QUOTA_GITHUB_TOKEN`.
+- Prefer `TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN`.
+- Fall back to legacy `COPILOT_QUOTA_GITHUB_TOKEN` for compatibility.
 - Fall back to the plugin-managed GitHub OAuth token in Windows Credential Manager.
 - Fall back to optional plaintext `github_token` in `config.json`.
 
@@ -65,9 +77,12 @@ The preferred user setup path is the plugin options dialog:
 6. The plugin verifies the token with `GET /user` and `GET /copilot_internal/user`.
 7. The plugin stores the token only after both verification requests succeed.
 
+The options dialog reads the stored credential's `UserName` field and shows `Status: signed in as <login>.` in bold when that verified login is available. `TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN` and legacy `COPILOT_QUOTA_GITHUB_TOKEN` show a generic TrafficMonitor token override status because the plugin does not verify the owner of that override before the user opens options.
+
 Device flow details:
 
 - OAuth client id: `Iv1.b507a08c87ecfe98`
+- The OAuth app name shown by GitHub is bound to this `client_id`; local request text cannot rename it. The plugin's own windows, User-Agent, credential target, and environment variables are TrafficMonitor-scoped.
 - Scope: `read:user`
 - Credential Manager target: `TrafficMonitorGitHubCopilotQuota:GitHubOAuth`
 - Credential type: `CRED_TYPE_GENERIC`
@@ -99,8 +114,11 @@ Optional configuration is stored at:
 
 Currently useful optional config keys:
 
-- `github_token`: legacy plaintext fallback token when neither the environment variable nor the stored OAuth token is set.
+- `github_token`: legacy plaintext fallback token when neither the TrafficMonitor environment variable nor the stored OAuth token is set.
 - `username`: displayed in the tooltip only; no `/user` request is needed for quota fetching.
+- `quota_display`: `remaining` or `used`.
+- `reset_display`: `countdown` or `time`.
+- `show_remaining_credits`: `true` or `false`; the credit count is always remaining credits when shown.
 
 TrafficMonitor may cache the Copilot plugin label in `C:\Apps\TrafficMonitor\config.ini`:
 
@@ -126,10 +144,24 @@ The value text starts with one regular space:
 
 Do not move that space into the label. TrafficMonitor trims ordinary whitespace at the leading and trailing edges of plugin labels, so label strings such as `5h: ` or ` 5h: ` do not reliably show visible spacing.
 
-`GetItemValueSampleText()` must reserve enough width for long countdown values. Current samples:
+`GetItemValueSampleText()` follows the current display options so TrafficMonitor does not reserve width for hidden fields. Codex countdown samples:
 
-- ` 100% 4h 59m`
-- ` 100% 6d 23h`
+- ` 100% 4h 59m` for `CodexQuota5h`
+- ` 100% 6d 23h` for `CodexQuotaWeek`
+
+Codex reset-time sample:
+
+- ` 100% 12-31 23:59`
+
+GitHub Copilot countdown samples:
+
+- ` 100% 20.0kcr 31d` when remaining credits are shown
+- ` 100% 31d` when remaining credits are hidden
+
+GitHub Copilot reset-time samples:
+
+- ` 100% 20.0kcr 12-31 23:59` when remaining credits are shown
+- ` 100% 12-31 23:59` when remaining credits are hidden
 
 ## Reset Countdown
 
@@ -141,6 +173,11 @@ The value suffix is a compact reset countdown:
 - weeks for exact or longer week values, for example `1w`
 
 Keep this compact; TrafficMonitor taskbar space is limited.
+
+When `reset_display` is set to `time`, the suffix is local time:
+
+- same local day: `18:30`
+- different local day: `06-23 18:30`
 
 ## Refresh Behavior
 
@@ -195,7 +232,7 @@ $msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Curren
 & $msbuild .\PluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 .\build\x64\Release\CodexQuotaTests.exe
 .\build\x64\Release\PluginSmokeTests.exe
-$env:CODEX_QUOTA_RUN_LIVE_TEST = '1'
+$env:TRAFFICMONITOR_CODEX_QUOTA_RUN_LIVE_TEST = '1'
 .\build\x64\Release\CodexQuotaTests.exe
 .\build\x64\Release\PluginSmokeTests.exe
 ```

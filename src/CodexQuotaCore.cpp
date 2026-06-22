@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <cwchar>
+#include <ctime>
+#include <iomanip>
 #include <sstream>
 
 namespace
@@ -79,6 +81,36 @@ std::optional<std::wstring> FindJsonStringValue(const std::wstring& json, const 
     }
 
     return std::nullopt;
+}
+
+std::optional<std::wstring> FindJsonScalarText(const std::wstring& json, const std::wstring& key)
+{
+    const std::wstring quoted_key = L"\"" + key + L"\"";
+    const auto key_pos = json.find(quoted_key);
+    if (key_pos == std::wstring::npos)
+    {
+        return std::nullopt;
+    }
+
+    const auto colon_pos = json.find(L':', key_pos + quoted_key.size());
+    if (colon_pos == std::wstring::npos)
+    {
+        return std::nullopt;
+    }
+
+    auto value_pos = json.find_first_not_of(L" \t\r\n", colon_pos + 1);
+    if (value_pos == std::wstring::npos)
+    {
+        return std::nullopt;
+    }
+
+    if (json[value_pos] == L'"')
+    {
+        return FindJsonStringValue(json, key);
+    }
+
+    const auto value_end = json.find_first_of(L",}]", value_pos);
+    return Trim(json.substr(value_pos, value_end == std::wstring::npos ? std::wstring::npos : value_end - value_pos));
 }
 
 std::optional<std::string> FindJsonStringValue(const std::string& json, const std::string& key)
@@ -299,6 +331,44 @@ std::optional<codexquota::RateWindow> ParseRateWindow(const std::string& object_
     return window;
 }
 
+std::wstring QuotaDisplayModeText(codexquota::QuotaDisplayMode mode)
+{
+    return mode == codexquota::QuotaDisplayMode::Used ? L"used" : L"remaining";
+}
+
+std::wstring ResetDisplayModeText(codexquota::ResetDisplayMode mode)
+{
+    return mode == codexquota::ResetDisplayMode::Time ? L"time" : L"countdown";
+}
+
+std::optional<codexquota::QuotaDisplayMode> ParseQuotaDisplayMode(const std::wstring& text)
+{
+    const auto value = Trim(text);
+    if (value.empty() || value == L"remaining")
+    {
+        return codexquota::QuotaDisplayMode::Remaining;
+    }
+    if (value == L"used")
+    {
+        return codexquota::QuotaDisplayMode::Used;
+    }
+    return std::nullopt;
+}
+
+std::optional<codexquota::ResetDisplayMode> ParseResetDisplayMode(const std::wstring& text)
+{
+    const auto value = Trim(text);
+    if (value.empty() || value == L"countdown")
+    {
+        return codexquota::ResetDisplayMode::Countdown;
+    }
+    if (value == L"time")
+    {
+        return codexquota::ResetDisplayMode::Time;
+    }
+    return std::nullopt;
+}
+
 }
 
 namespace codexquota
@@ -375,6 +445,45 @@ std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstrin
     return snapshot;
 }
 
+std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstring& error)
+{
+    error.clear();
+
+    PluginConfig config;
+    if (const auto quota_display = FindJsonStringValue(json, L"quota_display"))
+    {
+        const auto mode = ParseQuotaDisplayMode(*quota_display);
+        if (!mode.has_value())
+        {
+            error = L"TrafficMonitor Codex quota config quota_display must be remaining or used.";
+            return std::nullopt;
+        }
+        config.display.quota_display = *mode;
+    }
+    if (const auto reset_display = FindJsonStringValue(json, L"reset_display"))
+    {
+        const auto mode = ParseResetDisplayMode(*reset_display);
+        if (!mode.has_value())
+        {
+            error = L"TrafficMonitor Codex quota config reset_display must be countdown or time.";
+            return std::nullopt;
+        }
+        config.display.reset_display = *mode;
+    }
+
+    return config;
+}
+
+std::wstring SerializeConfigJson(const PluginConfig& config)
+{
+    std::wostringstream stream;
+    stream << L"{\n"
+           << L"  \"quota_display\": \"" << QuotaDisplayModeText(config.display.quota_display) << L"\",\n"
+           << L"  \"reset_display\": \"" << ResetDisplayModeText(config.display.reset_display) << L"\"\n"
+           << L"}\n";
+    return stream.str();
+}
+
 std::wstring FormatPercent(double used_percent)
 {
     if (std::isnan(used_percent) || used_percent < 0.0)
@@ -402,11 +511,21 @@ std::wstring FormatRemainingPercent(double used_percent)
 
 std::wstring FormatRemainingWindowText(double used_percent, long long reset_at, long long now)
 {
-    auto text = FormatRemainingPercent(used_percent);
+    DisplayOptions options;
+    return FormatWindowText(used_percent, reset_at, now, options);
+}
+
+std::wstring FormatWindowText(double used_percent, long long reset_at, long long now, const DisplayOptions& options)
+{
+    auto text = options.quota_display == QuotaDisplayMode::Used
+        ? FormatPercent(used_percent)
+        : FormatRemainingPercent(used_percent);
     if (reset_at > 0)
     {
         text += L" ";
-        text += FormatResetCountdown(reset_at, now);
+        text += options.reset_display == ResetDisplayMode::Time
+            ? FormatResetTime(reset_at, now)
+            : FormatResetCountdown(reset_at, now);
     }
     return text;
 }
@@ -453,6 +572,32 @@ std::wstring FormatResetCountdown(long long reset_at, long long now)
     }
 
     return std::to_wstring(minutes) + L"m";
+}
+
+std::wstring FormatResetTime(long long reset_at, long long now)
+{
+    const auto reset_time = static_cast<std::time_t>(reset_at);
+    const auto now_time = static_cast<std::time_t>(now);
+
+    std::tm reset_local{};
+    std::tm now_local{};
+    localtime_s(&reset_local, &reset_time);
+    localtime_s(&now_local, &now_time);
+
+    std::wostringstream stream;
+    stream << std::setfill(L'0');
+    if (reset_local.tm_year == now_local.tm_year && reset_local.tm_yday == now_local.tm_yday)
+    {
+        stream << std::setw(2) << reset_local.tm_hour << L":"
+               << std::setw(2) << reset_local.tm_min;
+        return stream.str();
+    }
+
+    stream << std::setw(2) << (reset_local.tm_mon + 1) << L"-"
+           << std::setw(2) << reset_local.tm_mday << L" "
+           << std::setw(2) << reset_local.tm_hour << L":"
+           << std::setw(2) << reset_local.tm_min;
+    return stream.str();
 }
 
 }

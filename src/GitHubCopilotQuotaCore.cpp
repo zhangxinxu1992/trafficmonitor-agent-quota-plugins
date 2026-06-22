@@ -218,6 +218,26 @@ std::optional<std::wstring> FindJsonScalarText(const std::wstring& json, const s
     return Trim(json.substr(*value_pos, value_end == std::wstring::npos ? std::wstring::npos : value_end - *value_pos));
 }
 
+std::optional<bool> FindJsonBool(const std::wstring& json, const std::wstring& key)
+{
+    const auto text = FindJsonScalarText(json, key);
+    if (!text.has_value())
+    {
+        return std::nullopt;
+    }
+
+    const auto value = Trim(*text);
+    if (value == L"true")
+    {
+        return true;
+    }
+    if (value == L"false")
+    {
+        return false;
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> FindJsonScalarText(const std::string& json, const std::string& key)
 {
     const auto value_pos = FindJsonValueStart(json, key);
@@ -708,6 +728,59 @@ std::optional<githubcopilotquota::CopilotInternalQuotaSnapshot> QuotaFromLimited
     return snapshot;
 }
 
+std::optional<githubcopilotquota::QuotaDisplayMode> ParseQuotaDisplayMode(const std::wstring& text)
+{
+    const auto value = Trim(text);
+    if (value.empty() || value == L"remaining")
+    {
+        return githubcopilotquota::QuotaDisplayMode::Remaining;
+    }
+    if (value == L"used")
+    {
+        return githubcopilotquota::QuotaDisplayMode::Used;
+    }
+    return std::nullopt;
+}
+
+std::optional<githubcopilotquota::ResetDisplayMode> ParseResetDisplayMode(const std::wstring& text)
+{
+    const auto value = Trim(text);
+    if (value.empty() || value == L"countdown")
+    {
+        return githubcopilotquota::ResetDisplayMode::Countdown;
+    }
+    if (value == L"time")
+    {
+        return githubcopilotquota::ResetDisplayMode::Time;
+    }
+    return std::nullopt;
+}
+
+std::wstring QuotaDisplayModeText(githubcopilotquota::QuotaDisplayMode mode)
+{
+    return mode == githubcopilotquota::QuotaDisplayMode::Used ? L"used" : L"remaining";
+}
+
+std::wstring ResetDisplayModeText(githubcopilotquota::ResetDisplayMode mode)
+{
+    return mode == githubcopilotquota::ResetDisplayMode::Time ? L"time" : L"countdown";
+}
+
+std::wstring EscapeJsonString(const std::wstring& value)
+{
+    std::wstring escaped;
+    escaped.reserve(value.size());
+    for (const auto ch : value)
+    {
+        if (ch == L'\\' || ch == L'"')
+        {
+            escaped.push_back(L'\\');
+        }
+        escaped.push_back(ch);
+    }
+    return escaped;
+}
+
 }
 
 namespace githubcopilotquota
@@ -734,7 +807,7 @@ std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstri
         const auto total_credits = FindJsonDouble(json, L"total_credits");
         if (!total_credits.has_value())
         {
-            error = L"GitHub Copilot quota config total_credits must be a valid number.";
+            error = L"TrafficMonitor GitHub Copilot quota config total_credits must be a valid number.";
             return std::nullopt;
         }
         config.total_credits = *total_credits;
@@ -744,7 +817,7 @@ std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstri
         const auto billing_day = FindJsonInt64(json, L"billing_day");
         if (!billing_day.has_value())
         {
-            error = L"GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
+            error = L"TrafficMonitor GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
             return std::nullopt;
         }
         if (*billing_day >= 1 && *billing_day <= 31)
@@ -754,12 +827,87 @@ std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstri
         }
         else
         {
-            error = L"GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
+            error = L"TrafficMonitor GitHub Copilot quota config billing_day must be an integer from 1 to 31.";
             return std::nullopt;
         }
     }
+    if (const auto quota_display = FindJsonStringValue(json, L"quota_display"))
+    {
+        const auto mode = ParseQuotaDisplayMode(*quota_display);
+        if (!mode.has_value())
+        {
+            error = L"TrafficMonitor GitHub Copilot quota config quota_display must be remaining or used.";
+            return std::nullopt;
+        }
+        config.display.quota_display = *mode;
+    }
+    if (const auto reset_display = FindJsonStringValue(json, L"reset_display"))
+    {
+        const auto mode = ParseResetDisplayMode(*reset_display);
+        if (!mode.has_value())
+        {
+            error = L"TrafficMonitor GitHub Copilot quota config reset_display must be countdown or time.";
+            return std::nullopt;
+        }
+        config.display.reset_display = *mode;
+    }
+    if (FindJsonValueStart(json, L"show_remaining_credits").has_value())
+    {
+        const auto show_remaining_credits = FindJsonBool(json, L"show_remaining_credits");
+        if (!show_remaining_credits.has_value())
+        {
+            error = L"TrafficMonitor GitHub Copilot quota config show_remaining_credits must be true or false.";
+            return std::nullopt;
+        }
+        config.display.show_remaining_credits = *show_remaining_credits;
+    }
 
     return config;
+}
+
+std::wstring SerializeConfigJson(const PluginConfig& config)
+{
+    std::wostringstream stream;
+    stream << L"{\n";
+    bool first = true;
+    auto write_separator = [&] {
+        if (!first)
+        {
+            stream << L",\n";
+        }
+        first = false;
+    };
+    auto write_string = [&](const wchar_t* key, const std::wstring& value) {
+        if (value.empty())
+        {
+            return;
+        }
+        write_separator();
+        stream << L"  \"" << key << L"\": \"" << EscapeJsonString(value) << L"\"";
+    };
+
+    write_string(L"github_token", config.github_token);
+    write_string(L"username", config.username);
+    write_string(L"plan", config.plan);
+    if (config.total_credits > 0.0)
+    {
+        write_separator();
+        stream << L"  \"total_credits\": " << config.total_credits;
+    }
+    if (config.has_billing_day)
+    {
+        write_separator();
+        stream << L"  \"billing_day\": " << config.billing_day;
+    }
+
+    write_separator();
+    stream << L"  \"quota_display\": \"" << QuotaDisplayModeText(config.display.quota_display) << L"\"";
+    write_separator();
+    stream << L"  \"reset_display\": \"" << ResetDisplayModeText(config.display.reset_display) << L"\"";
+    write_separator();
+    stream << L"  \"show_remaining_credits\": " << (config.display.show_remaining_credits ? L"true" : L"false");
+    stream << L"\n}\n";
+    return stream.str();
 }
 
 std::optional<GitHubTokenChoice> ResolveGitHubToken(
@@ -788,7 +936,7 @@ std::optional<GitHubTokenChoice> ResolveGitHubToken(
         return GitHubTokenChoice{trimmed_config_token, GitHubTokenSource::Config};
     }
 
-    error = L"Missing GitHub token. Sign in from plugin options, set COPILOT_QUOTA_GITHUB_TOKEN, or set github_token in config.json.";
+    error = L"Missing GitHub token. Sign in from TrafficMonitor plugin options, set TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_TOKEN, or set github_token in TrafficMonitor config.json. Legacy COPILOT_QUOTA_GITHUB_TOKEN is still supported.";
     return std::nullopt;
 }
 
@@ -812,7 +960,7 @@ std::optional<Allowance> ResolveAllowance(const PluginConfig& config, std::wstri
         return Allowance{20000.0, L"plan:max"};
     }
 
-    error = L"GitHub Copilot quota config requires total_credits or a known plan.";
+    error = L"TrafficMonitor GitHub Copilot quota config requires total_credits or a known plan.";
     return std::nullopt;
 }
 
@@ -1188,13 +1336,55 @@ std::wstring FormatResetCountdown(long long reset_at, long long now)
     return std::to_wstring(minutes) + L"m";
 }
 
+std::wstring FormatResetTime(long long reset_at, long long now)
+{
+    const auto reset_time = static_cast<std::time_t>(reset_at);
+    const auto now_time = static_cast<std::time_t>(now);
+
+    std::tm reset_local{};
+    std::tm now_local{};
+    localtime_s(&reset_local, &reset_time);
+    localtime_s(&now_local, &now_time);
+
+    std::wostringstream stream;
+    stream << std::setfill(L'0');
+    if (reset_local.tm_year == now_local.tm_year && reset_local.tm_yday == now_local.tm_yday)
+    {
+        stream << std::setw(2) << reset_local.tm_hour << L":"
+               << std::setw(2) << reset_local.tm_min;
+        return stream.str();
+    }
+
+    stream << std::setw(2) << (reset_local.tm_mon + 1) << L"-"
+           << std::setw(2) << reset_local.tm_mday << L" "
+           << std::setw(2) << reset_local.tm_hour << L":"
+           << std::setw(2) << reset_local.tm_min;
+    return stream.str();
+}
+
 std::wstring FormatQuotaValue(const Quota& quota, long long reset_at, long long now)
 {
-    auto value = L" " + FormatPercent(quota.remaining_percent) + L" " + FormatCreditCount(quota.remaining_credits);
+    DisplayOptions options;
+    return FormatQuotaValue(quota, reset_at, now, options);
+}
+
+std::wstring FormatQuotaValue(const Quota& quota, long long reset_at, long long now, const DisplayOptions& options)
+{
+    const auto percent = options.quota_display == QuotaDisplayMode::Used
+        ? 100.0 - quota.remaining_percent
+        : quota.remaining_percent;
+    auto value = L" " + FormatPercent(percent);
+    if (options.show_remaining_credits)
+    {
+        value += L" ";
+        value += FormatCreditCount(quota.remaining_credits);
+    }
     if (reset_at > 0)
     {
         value += L" ";
-        value += FormatResetCountdown(reset_at, now);
+        value += options.reset_display == ResetDisplayMode::Time
+            ? FormatResetTime(reset_at, now)
+            : FormatResetCountdown(reset_at, now);
     }
     return value;
 }
