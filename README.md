@@ -1,6 +1,6 @@
-# TrafficMonitor Codex Quota Plugin
+# TrafficMonitor Agent Quota Plugins
 
-TrafficMonitor x64 plugin that displays Codex quota percentage.
+TrafficMonitor x64 plugins that display Codex and GitHub Copilot quota percentages.
 
 Unofficial project. This plugin is not affiliated with OpenAI, GitHub, or the
 TrafficMonitor project.

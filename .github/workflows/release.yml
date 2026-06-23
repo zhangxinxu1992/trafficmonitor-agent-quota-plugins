@@ -77,8 +77,8 @@ jobs:
         shell: pwsh
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $packageDir = Join-Path $env:RUNNER_TEMP 'trafficmonitor-codex-quota-plugin'
-          $asset = "trafficmonitor-codex-quota-plugin-$tag.zip"
+          $packageDir = Join-Path $env:RUNNER_TEMP 'trafficmonitor-agent-quota-plugins'
+          $asset = "trafficmonitor-agent-quota-plugins-$tag.zip"
 
           New-Item -ItemType Directory -Force $packageDir | Out-Null
           Copy-Item .\build\x64\Release\TrafficMonitorCodexQuota.dll $packageDir
@@ -94,8 +94,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $asset = "trafficmonitor-codex-quota-plugin-$tag.zip"
-          $title = "TrafficMonitor Codex Quota Plugin $tag"
+          $asset = "trafficmonitor-agent-quota-plugins-$tag.zip"
+          $title = "TrafficMonitor Agent Quota Plugins $tag"
 
           gh release view $tag *> $null
           $releaseExists = $LASTEXITCODE -eq 0

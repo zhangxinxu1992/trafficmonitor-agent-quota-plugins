@@ -671,7 +671,7 @@ public:
         case TMI_VERSION:
             return kTrafficMonitorQuotaPluginVersion;
         case TMI_URL:
-            return L"https://github.com/zhangxinxu1992/trafficmonitor-codex-quota-plugin";
+            return L"https://github.com/zhangxinxu1992/trafficmonitor-agent-quota-plugins";
         default:
             return L"";
         }

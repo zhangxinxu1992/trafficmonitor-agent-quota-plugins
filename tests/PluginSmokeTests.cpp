@@ -263,7 +263,7 @@ int main()
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_AUTHOR)) == L"zhangxinxu", "plugin author should identify the repository owner");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_COPYRIGHT)) == L"MIT", "plugin copyright field should name the project license");
         Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_VERSION)) == kTrafficMonitorQuotaPluginVersion, "plugin version should match the unified release version");
-        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_URL)) == L"https://github.com/zhangxinxu1992/trafficmonitor-codex-quota-plugin", "plugin URL should point to the public repository");
+        Check(std::wstring(plugin->GetInfo(ITMPlugin::TMI_URL)) == L"https://github.com/zhangxinxu1992/trafficmonitor-agent-quota-plugins", "plugin URL should point to the public repository");
         VerifyOptionsDialogOpensAndCloses(plugin);
 
         IPluginItem* five_hour = plugin->GetItem(0);
