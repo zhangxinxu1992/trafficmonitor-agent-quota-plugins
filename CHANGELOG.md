@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.5
+
+### Fixed
+
+- Increased the GitHub Copilot countdown sample width so day-plus-hour reset text, such as `7d 19h`, is no longer clipped in the TrafficMonitor taskbar window.
+- Added smoke-test coverage for Codex and GitHub Copilot sample-width behavior across countdown, reset-time, and hidden-reset display modes.
+
+**Full Changelog**: https://github.com/zhangxinxu1992/trafficmonitor-agent-quota-plugins/compare/v1.4...v1.5
+
 ## v1.4
 
 ### Fixed

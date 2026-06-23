@@ -125,8 +125,8 @@ void PrepareDisplayConfig(const std::wstring& appdata)
         JoinPath(dir, L"config.json"),
         "{\n"
         "  \"quota_display\": \"used\",\n"
-        "  \"reset_display\": \"time\",\n"
-        "  \"show_reset_info\": false,\n"
+        "  \"reset_display\": \"countdown\",\n"
+        "  \"show_reset_info\": true,\n"
         "  \"show_remaining_credits\": false\n"
         "}\n");
 }
@@ -269,12 +269,12 @@ void VerifyOptionsDialogUsesCompactLayout(ITMPlugin* plugin)
         const auto countdown = FindChildWindowByText(dialog, L"Countdown");
         const auto reset_time = FindChildWindowByText(dialog, L"Reset time");
         Check(show_reset_info != nullptr, "GitHub Copilot options should include reset info checkbox");
-        Check(show_reset_info != nullptr && SendMessageW(show_reset_info, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
-            "GitHub Copilot reset info checkbox should reflect hidden reset config");
-        Check(countdown != nullptr && !IsWindowEnabled(countdown),
-            "GitHub Copilot countdown option should be disabled when reset info is hidden");
-        Check(reset_time != nullptr && !IsWindowEnabled(reset_time),
-            "GitHub Copilot reset time option should be disabled when reset info is hidden");
+        Check(show_reset_info != nullptr && SendMessageW(show_reset_info, BM_GETCHECK, 0, 0) == BST_CHECKED,
+            "GitHub Copilot reset info checkbox should reflect visible reset config");
+        Check(countdown != nullptr && IsWindowEnabled(countdown),
+            "GitHub Copilot countdown option should be enabled when reset info is visible");
+        Check(reset_time != nullptr && IsWindowEnabled(reset_time),
+            "GitHub Copilot reset time option should be enabled when reset info is visible");
 
         PostMessageW(dialog, WM_CLOSE, 0, 0);
     }
@@ -344,7 +344,7 @@ int main()
             Check(std::wstring(item->GetItemId()) == L"GitHubCopilotQuotaAI", "item id should match");
             Check(std::wstring(item->GetItemName()) == L"TrafficMonitor GitHub Copilot Quota", "item name should match");
             Check(std::wstring(item->GetItemLableText()) == L"GC:", "label should avoid trim-prone whitespace");
-            Check(std::wstring(item->GetItemValueSampleText()) == L" 100%", "sample should omit hidden reset info and hidden credit width");
+            Check(std::wstring(item->GetItemValueSampleText()) == L" 100% 31d 23h", "countdown sample should reserve max day-plus-hour width");
 
             const std::wstring initial_value(item->GetItemValueText());
             Check(initial_value == L" ...", "initial value should include visible spacing before loading");

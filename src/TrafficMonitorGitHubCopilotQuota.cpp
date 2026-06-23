@@ -910,7 +910,7 @@ std::wstring BuildGitHubCopilotSampleText(const githubcopilotquota::DisplayOptio
 
     sample += options.reset_display == githubcopilotquota::ResetDisplayMode::Time
         ? L" 12-31 23:59"
-        : L" 31d";
+        : L" 31d 23h";
     return sample;
 }
 

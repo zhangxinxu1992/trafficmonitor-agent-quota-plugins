@@ -82,6 +82,13 @@ void PrepareDisplayConfig(const std::wstring& appdata)
         "}\n");
 }
 
+void PrepareDisplayConfig(const std::wstring& appdata, const char* config_json)
+{
+    const auto dir = JoinPath(appdata, L"TrafficMonitorCodexQuota");
+    CreateDirectoryW(dir.c_str(), nullptr);
+    WriteAsciiFile(JoinPath(dir, L"config.json"), config_json);
+}
+
 std::wstring ReadEnvironmentVariable(const wchar_t* name)
 {
     const DWORD size = GetEnvironmentVariableW(name, nullptr, 0);
@@ -272,6 +279,51 @@ void VerifyOptionsDialogOpensAndCloses(ITMPlugin* plugin)
         }
     }
 }
+
+void VerifySampleTextForConfig(
+    const char* config_json,
+    const wchar_t* expected_five_hour_sample,
+    const wchar_t* expected_weekly_sample,
+    const char* case_name)
+{
+    const auto appdata = CreateIsolatedAppDataDir();
+    PrepareDisplayConfig(appdata, config_json);
+    EnvironmentVariableGuard appdata_guard(L"APPDATA", appdata.c_str());
+
+    const auto dll_path = CurrentExeDir() + L"\\TrafficMonitorCodexQuota.dll";
+    HMODULE module = LoadLibraryW(dll_path.c_str());
+    Check(module != nullptr, case_name);
+    if (module == nullptr)
+    {
+        std::wcerr << L"FAIL: LoadLibrary failed for " << dll_path << L" error " << GetLastError() << L'\n';
+        return;
+    }
+
+    auto get_instance = reinterpret_cast<ITMPlugin* (*)()>(GetProcAddress(module, "TMPluginGetInstance"));
+    Check(get_instance != nullptr, "TMPluginGetInstance should be exported for sample smoke case");
+    ITMPlugin* plugin = get_instance == nullptr ? nullptr : get_instance();
+    Check(plugin != nullptr, "TMPluginGetInstance should return a plugin for sample smoke case");
+
+    if (plugin != nullptr)
+    {
+        IPluginItem* five_hour = plugin->GetItem(0);
+        IPluginItem* weekly = plugin->GetItem(1);
+        Check(five_hour != nullptr, "sample smoke case 5h item should exist");
+        Check(weekly != nullptr, "sample smoke case weekly item should exist");
+        if (five_hour != nullptr)
+        {
+            Check(std::wstring(five_hour->GetItemValueSampleText()) == expected_five_hour_sample,
+                "5h sample should follow Codex display config");
+        }
+        if (weekly != nullptr)
+        {
+            Check(std::wstring(weekly->GetItemValueSampleText()) == expected_weekly_sample,
+                "weekly sample should follow Codex display config");
+        }
+    }
+
+    FreeLibrary(module);
+}
 }
 
 int main()
@@ -356,6 +408,26 @@ int main()
     }
 
     FreeLibrary(module);
+
+    VerifySampleTextForConfig(
+        "{\n"
+        "  \"quota_display\": \"remaining\",\n"
+        "  \"reset_display\": \"countdown\",\n"
+        "  \"show_reset_info\": true\n"
+        "}\n",
+        L" 100% 4h 59m",
+        L" 100% 6d 23h",
+        "Codex countdown sample smoke case should load the plugin");
+
+    VerifySampleTextForConfig(
+        "{\n"
+        "  \"quota_display\": \"remaining\",\n"
+        "  \"reset_display\": \"time\",\n"
+        "  \"show_reset_info\": true\n"
+        "}\n",
+        L" 100% 12-31 23:59",
+        L" 100% 12-31 23:59",
+        "Codex reset-time sample smoke case should load the plugin");
 
     if (failures != 0)
     {

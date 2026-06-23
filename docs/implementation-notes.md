@@ -168,8 +168,8 @@ Codex hidden-reset sample:
 
 GitHub Copilot countdown samples:
 
-- ` 100% 20.0kcr 31d` when remaining credits are shown
-- ` 100% 31d` when remaining credits are hidden
+- ` 100% 20.0kcr 31d 23h` when remaining credits are shown
+- ` 100% 31d 23h` when remaining credits are hidden
 
 GitHub Copilot reset-time samples:
 
