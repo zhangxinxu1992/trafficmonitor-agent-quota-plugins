@@ -89,6 +89,13 @@ jobs:
           Copy-Item .\THIRD_PARTY_NOTICES.md $packageDir
           Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $asset -Force
 
+      - name: Resolve release notes
+        shell: pwsh
+        run: |
+          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          .\.github\scripts\Get-ReleaseNotes.ps1 -Tag $env:GITHUB_REF_NAME -ChangelogPath .\CHANGELOG.md -OutputPath $notesPath
+          "RELEASE_NOTES_PATH=$notesPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Publish GitHub release
         shell: pwsh
         env:
@@ -103,8 +110,11 @@ jobs:
 
           if ($releaseExists) {
             gh release upload $tag $asset --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            gh release edit $tag --title $title --notes-file $env:RELEASE_NOTES_PATH
           } else {
-            gh release create $tag $asset --title $title --generate-notes
+            gh release create $tag $asset --title $title --notes-file $env:RELEASE_NOTES_PATH
           }
 
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
