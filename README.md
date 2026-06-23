@@ -1,5 +1,7 @@
 # TrafficMonitor Agent Quota Plugins
 
+English | [简体中文](README.zh-CN.md)
+
 TrafficMonitor x64 plugins for showing Codex and GitHub Copilot quota in the
 TrafficMonitor taskbar window.
 
@@ -88,6 +90,7 @@ Each release ZIP contains:
 TrafficMonitorCodexQuota.dll
 TrafficMonitorGitHubCopilotQuota.dll
 README.md
+README.zh-CN.md
 LICENSE
 THIRD_PARTY_NOTICES.md
 ```

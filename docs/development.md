@@ -67,5 +67,5 @@ tests, and uploads one ZIP:
 trafficmonitor-agent-quota-plugins-v<version>.zip
 ```
 
-The ZIP contains both plugin DLLs plus README, license, and third-party notice
-files.
+The ZIP contains both plugin DLLs plus English and Chinese READMEs, license, and
+third-party notice files.

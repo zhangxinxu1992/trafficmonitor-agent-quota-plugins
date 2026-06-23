@@ -84,6 +84,7 @@ jobs:
           Copy-Item .\build\x64\Release\TrafficMonitorCodexQuota.dll $packageDir
           Copy-Item .\build\x64\Release\TrafficMonitorGitHubCopilotQuota.dll $packageDir
           Copy-Item .\README.md $packageDir
+          Copy-Item .\README.zh-CN.md $packageDir
           Copy-Item .\LICENSE $packageDir
           Copy-Item .\THIRD_PARTY_NOTICES.md $packageDir
           Compress-Archive -Path (Join-Path $packageDir '*') -DestinationPath $asset -Force
