@@ -1,4 +1,4 @@
-# TrafficMonitor Codex Quota Plugin Design
+# TrafficMonitor Codex and Claude Quota Plugin Design
 
 ## Goal
 
@@ -9,6 +9,10 @@ The plugin exposes three display items:
 - `CX 5h:`: percentage of the Codex 5-hour primary rate window plus reset information.
 - `CX 7d:`: percentage of the Codex 7-day secondary rate window plus reset information.
 - `CX 1mo:`: percentage of the monthly workspace spend-control window returned for company accounts plus reset information.
+
+The separate Claude plugin mirrors the same three-window shape with `CL 5h:`,
+`CL 7d:`, and `CL 1mo:`. Enterprise accounts that expose only a monthly spend
+limit show `N/A` for the unavailable 5-hour and 7-day items.
 
 Values use compact text, for example `CX 5h: 76% 42m` or `CX 7d: 90% 6d 1h`. By default the percentage is remaining quota and the suffix is the countdown until that quota window resets. The user can switch the percentage to used quota, hide reset information, or show visible reset information as local reset time. The taskbar value text starts with a regular space so spacing remains visible after TrafficMonitor trims plugin-label edges. `GetItemValueSampleText()` follows the current display mode: countdown mode uses compact samples such as ` 100% 4h 59m` or ` 100% 6d 23h`, reset-time mode reserves enough width for values such as ` 100% 12-31 23:59`, and hidden reset mode reserves only ` 100%`.
 
@@ -57,6 +61,30 @@ the percentage from `used / limit`.
 
 The first version intentionally ignores `additional_rate_limits`, including Spark-specific quota windows.
 
+## Claude Data Source
+
+The Claude plugin uses Claude Code OAuth as its only authentication and data
+source:
+
+1. Read `%USERPROFILE%\.claude\.credentials.json`.
+2. Parse `accessToken` and `rateLimitTier` only from the `claudeAiOauth` object;
+   unrelated `mcpOAuth` tokens must never be selected.
+3. Send `GET https://api.anthropic.com/api/oauth/usage` with the
+   `anthropic-beta: oauth-2025-04-20` header.
+4. Parse `five_hour` and `seven_day` utilization/reset windows.
+5. Parse the embedded `extra_usage` monthly limit and used credits. When the
+   response has no explicit reset timestamp, use the next UTC calendar-month
+   boundary; this displays as 08:00 in GMT+8.
+
+Opening the plugin options requires a valid Claude Code login. If credentials
+are missing, the plugin offers to run `claude auth login` in a new console and
+opens display settings only after the command succeeds and credentials can be
+read.
+
+A claude.ai web `sessionKey` provider is reserved as a possible future
+supplement if OAuth no longer exposes required quota fields. It is intentionally
+not implemented in the current version.
+
 ## Configuration
 
 Optional Codex display configuration lives at `%APPDATA%\TrafficMonitorCodexQuota\config.json`:
@@ -70,6 +98,10 @@ Optional Codex display configuration lives at `%APPDATA%\TrafficMonitorCodexQuot
 ```
 
 `quota_display` accepts `remaining` or `used`. `show_reset_info` accepts `true` or `false`. `reset_display` accepts `countdown` or `time` and only affects the taskbar value when `show_reset_info` is `true`. Missing config uses the defaults above.
+
+Claude uses the same display-only schema at
+`%APPDATA%\TrafficMonitorClaudeQuota\config.json`. Authentication remains only
+in Claude Code's own credentials file.
 
 ## Runtime Behavior
 
@@ -95,9 +127,14 @@ The tooltip includes the plan, all three windows, reset information, last refres
 
 ## Implementation Shape
 
-The project uses a small shared C++17 core plus two binaries:
+The Codex implementation uses a small shared C++17 core plus two binaries:
 
 - `TrafficMonitorCodexQuota.dll`: the TrafficMonitor plugin.
 - `CodexQuotaTests.exe`: console tests for credential parsing, usage JSON parsing, percent formatting, and reset countdown formatting.
 
 The plugin uses WinHTTP for HTTPS and has no third-party runtime dependency.
+
+Claude follows the same shape with `TrafficMonitorClaudeQuota.dll`,
+`ClaudeQuotaTests.exe`, and `ClaudePluginSmokeTests.exe`. It reuses the common
+display formatting and config schema while keeping Claude response parsing,
+credential storage, and fetch behavior in dedicated source files.

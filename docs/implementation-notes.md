@@ -157,6 +157,46 @@ GitHubCopilotQuotaAI = GC:
 
 Important: `config.ini` is GBK encoded on this machine. Use code page 936 when editing it from scripts. Rewriting it as UTF-8 can garble existing Chinese labels.
 
+## TrafficMonitor Claude Quota Plugin
+
+The Claude plugin is built as `TrafficMonitorClaudeQuota.dll` and exposes:
+
+- `ClaudeQuota5h` with label `CL 5h:`
+- `ClaudeQuotaWeek` with label `CL 7d:`
+- `ClaudeQuotaMonth` with label `CL 1mo:`
+
+The plugin uses Claude Code as its only authentication source. It reads
+`%USERPROFILE%\.claude\.credentials.json`, selects `accessToken` and
+`rateLimitTier` only from the `claudeAiOauth` object, and calls
+`GET https://api.anthropic.com/api/oauth/usage` with
+`anthropic-beta: oauth-2025-04-20`. The parser deliberately ignores same-named
+fields inside `mcpOAuth`.
+
+Opening Options checks for readable Claude Code OAuth credentials first. When
+they are missing, the plugin asks the user whether to start
+`claude auth login`, launches it in a new console, waits for completion, and
+opens display settings only after the new credentials pass parsing.
+
+The current plugin does not accept or store claude.ai Web `sessionKey` values.
+That provider is reserved as a future supplementary source only if Claude Code's
+OAuth endpoint stops returning a required quota field.
+
+Response fields used include:
+
+- `five_hour.utilization` and `five_hour.resets_at`
+- `seven_day.utilization` and `seven_day.resets_at`
+- `extra_usage.monthly_limit`
+- `used_credits`
+- `is_enabled`
+
+The Enterprise monthly percentage is `used_credits / monthly_limit`.
+When the API omits a reset timestamp, the reset is the next UTC calendar-month
+boundary, matching a GMT+8 settings-page reset at 08:00 on the first day.
+
+Claude display settings live at
+`%APPDATA%\TrafficMonitorClaudeQuota\config.json` and use the same
+`quota_display`, `reset_display`, and `show_reset_info` keys as Codex.
+
 ## Display Decisions
 
 The taskbar items are:
@@ -164,6 +204,9 @@ The taskbar items are:
 - `CodexQuota5h` with label `CX 5h:`
 - `CodexQuotaWeek` with label `CX 7d:`
 - `CodexQuotaMonth` with label `CX 1mo:`
+- `ClaudeQuota5h` with label `CL 5h:`
+- `ClaudeQuotaWeek` with label `CL 7d:`
+- `ClaudeQuotaMonth` with label `CL 1mo:`
 
 Codex has no official short abbreviation in the referenced OpenAI docs. The labels use `CX` as this plugin's compact Codex prefix.
 
@@ -172,6 +215,7 @@ The value text starts with one regular space:
 - label `CX 5h:` plus value ` 69% 42m` displays as `CX 5h: 69% 42m`
 - label `CX 7d:` plus value ` 89% 6d 1h` displays as `CX 7d: 89% 6d 1h`
 - label `CX 1mo:` plus value ` 97% 2w 4d` displays as `CX 1mo: 97% 2w 4d`
+- label `CL 1mo:` plus value ` 92% 2w 4d` displays as `CL 1mo: 92% 2w 4d`
 
 Do not move that space into the label. TrafficMonitor trims ordinary whitespace at the leading and trailing edges of plugin labels, so label strings such as `CX 5h: ` or ` CX 5h:` do not reliably show visible spacing.
 
@@ -188,6 +232,9 @@ Codex reset-time sample:
 Codex hidden-reset sample:
 
 - ` 100%`
+
+Claude uses the same three sample widths as Codex for 5-hour, weekly, and
+monthly items.
 
 GitHub Copilot countdown samples:
 
@@ -253,6 +300,9 @@ Expected cached labels:
 CodexQuota5h = CX 5h:
 CodexQuotaWeek = CX 7d:
 CodexQuotaMonth = CX 1mo:
+ClaudeQuota5h = CL 5h:
+ClaudeQuotaWeek = CL 7d:
+ClaudeQuotaMonth = CL 1mo:
 ```
 
 The visible colon spacing is provided by the value text, not this cache.
