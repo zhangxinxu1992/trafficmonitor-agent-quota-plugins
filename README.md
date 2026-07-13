@@ -12,7 +12,7 @@ TrafficMonitor project.
 
 | Plugin DLL | Shows | Setup |
 | --- | --- | --- |
-| `TrafficMonitorCodexQuota.dll` | `CX 5h:` and `CX 7d:` Codex quota windows | Sign in with the Codex CLI first. |
+| `TrafficMonitorCodexQuota.dll` | `CX 5h:`, `CX 7d:`, and company-account `CX 1mo:` Codex quota windows | Sign in with the Codex CLI first. |
 | `TrafficMonitorGitHubCopilotQuota.dll` | `GC:` GitHub Copilot quota | Open the plugin options and choose `Sign in with GitHub`. |
 
 The default display uses remaining quota and a compact reset countdown. Plugin
@@ -27,6 +27,7 @@ Example taskbar text:
 ```text
 CX 5h: 69% 42m
 CX 7d: 89% 6d 1h
+CX 1mo: 97% 2w 4d
 GC: 82% 1.2kcr 12d
 ```
 
@@ -68,6 +69,7 @@ After restarting TrafficMonitor:
 3. Enable the items you want:
    - `CodexQuota5h`
    - `CodexQuotaWeek`
+   - `CodexQuotaMonth`
    - `GitHubCopilotQuotaAI`
 
 You can install either DLL or both DLLs.
@@ -76,7 +78,11 @@ You can install either DLL or both DLLs.
 
 For Codex quota, make sure Codex is already authenticated on the same Windows
 user account. The plugin reads the local Codex auth file and refreshes quota in
-the background.
+the background. Personal plans normally provide the 5-hour and 7-day windows;
+Business and Enterprise workspaces can instead provide a monthly spend-control
+window, which is shown by `CodexQuotaMonth` as `CX 1mo:`.
+When `HTTPS_PROXY` or `HTTP_PROXY` is set, the plugin uses that proxy for the
+quota request; otherwise it uses the Windows system proxy configuration.
 
 For GitHub Copilot quota, open the TrafficMonitor plugin options dialog and use
 `Sign in with GitHub`. The plugin stores the OAuth token in Windows Credential

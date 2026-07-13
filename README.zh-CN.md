@@ -10,7 +10,7 @@
 
 | 插件 DLL | 显示内容 | 准备工作 |
 | --- | --- | --- |
-| `TrafficMonitorCodexQuota.dll` | `CX 5h:` 和 `CX 7d:` 两个 Codex 额度窗口 | 先使用 Codex CLI 完成登录。 |
+| `TrafficMonitorCodexQuota.dll` | `CX 5h:`、`CX 7d:`，以及公司账户的 `CX 1mo:` Codex 额度窗口 | 先使用 Codex CLI 完成登录。 |
 | `TrafficMonitorGitHubCopilotQuota.dll` | `GC:` GitHub Copilot 额度 | 打开插件选项，点击 `Sign in with GitHub` 登录。 |
 
 默认显示剩余额度和紧凑的重置倒计时。插件选项可以切换为已用额度、隐藏重置信息，或把重置信息从倒计时切换为本地重置时间。GitHub Copilot 插件还可以选择是否显示剩余 credits。启用 TrafficMonitor 的资源占用图后，插件会提供已用额度百分比作为图形数值，因此剩余额度很低时柱状图会接近填满。
@@ -20,6 +20,7 @@
 ```text
 CX 5h: 69% 42m
 CX 7d: 89% 6d 1h
+CX 1mo: 97% 2w 4d
 GC: 82% 1.2kcr 12d
 ```
 
@@ -52,13 +53,16 @@ TrafficMonitor 官方插件文档也采用同样的安装方式：使用与 Traf
 3. 启用需要的显示项：
    - `CodexQuota5h`
    - `CodexQuotaWeek`
+   - `CodexQuotaMonth`
    - `GitHubCopilotQuotaAI`
 
 可以只安装其中一个 DLL，也可以两个都安装。
 
 ## 配置
 
-Codex 额度插件要求同一个 Windows 用户账户下已经完成 Codex 登录。插件会读取本机 Codex 认证文件，并在后台刷新额度。
+Codex 额度插件要求同一个 Windows 用户账户下已经完成 Codex 登录。插件会读取本机 Codex 认证文件，并在后台刷新额度。个人方案通常提供 5 小时和 7 天窗口；Business 和 Enterprise 工作区可能改为提供月度支出控制窗口，此时由 `CodexQuotaMonth` 以 `CX 1mo:` 显示。
+
+如果设置了 `HTTPS_PROXY` 或 `HTTP_PROXY`，插件会通过该代理请求额度；否则使用 Windows 系统代理配置。
 
 GitHub Copilot 额度插件需要在 TrafficMonitor 插件选项中点击 `Sign in with GitHub` 登录。插件会把 OAuth token 作为 TrafficMonitor 专用的本地凭据保存到 Windows 凭据管理器。
 

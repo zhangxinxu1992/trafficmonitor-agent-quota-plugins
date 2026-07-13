@@ -23,6 +23,7 @@ Codex credential lookup:
 - Prefer the `OPENAI_API_KEY` field when it is present in the Codex auth file.
 - Otherwise use `tokens.access_token` from `auth.json`.
 - Send `ChatGPT-Account-Id` when `tokens.account_id` is present.
+- Use `HTTPS_PROXY` or `HTTP_PROXY` when configured; otherwise let WinHTTP use the Windows system proxy configuration.
 
 Usage endpoint:
 
@@ -34,6 +35,19 @@ Fields used:
 - `rate_limit.primary_window.reset_at`
 - `rate_limit.secondary_window.used_percent`
 - `rate_limit.secondary_window.reset_at`
+- `spend_control.individual_limit.used_percent`
+- `spend_control.individual_limit.remaining_percent`
+- `spend_control.individual_limit.limit`
+- `spend_control.individual_limit.used`
+- `spend_control.individual_limit.reset_at`
+
+Codex Business and Enterprise workspaces may return `rate_limit: null`. Their
+monthly allocation is returned as `spend_control.individual_limit`, with
+`source: workspace_spend_controls`. The response includes total, used, and
+remaining allocation values, both percentages, and the next calendar-month
+reset timestamp. The plugin exposes this as `CodexQuotaMonth` with label
+`CX 1mo:`. It derives used percentage from `remaining_percent` or `used / limit`
+when `used_percent` is absent.
 
 The default displayed percentage is remaining percentage: `100 - used_percent`. The user can switch the display to the raw used percentage from the plugin options dialog.
 
@@ -143,6 +157,7 @@ The taskbar items are:
 
 - `CodexQuota5h` with label `CX 5h:`
 - `CodexQuotaWeek` with label `CX 7d:`
+- `CodexQuotaMonth` with label `CX 1mo:`
 
 Codex has no official short abbreviation in the referenced OpenAI docs. The labels use `CX` as this plugin's compact Codex prefix.
 
@@ -150,6 +165,7 @@ The value text starts with one regular space:
 
 - label `CX 5h:` plus value ` 69% 42m` displays as `CX 5h: 69% 42m`
 - label `CX 7d:` plus value ` 89% 6d 1h` displays as `CX 7d: 89% 6d 1h`
+- label `CX 1mo:` plus value ` 97% 2w 4d` displays as `CX 1mo: 97% 2w 4d`
 
 Do not move that space into the label. TrafficMonitor trims ordinary whitespace at the leading and trailing edges of plugin labels, so label strings such as `CX 5h: ` or ` CX 5h:` do not reliably show visible spacing.
 
@@ -157,6 +173,7 @@ Do not move that space into the label. TrafficMonitor trims ordinary whitespace 
 
 - ` 100% 4h 59m` for `CodexQuota5h`
 - ` 100% 6d 23h` for `CodexQuotaWeek`
+- ` 100% 4w 3d` for `CodexQuotaMonth`
 
 Codex reset-time sample:
 
@@ -229,6 +246,7 @@ Expected cached labels:
 ```ini
 CodexQuota5h = CX 5h:
 CodexQuotaWeek = CX 7d:
+CodexQuotaMonth = CX 1mo:
 ```
 
 The visible colon spacing is provided by the value text, not this cache.

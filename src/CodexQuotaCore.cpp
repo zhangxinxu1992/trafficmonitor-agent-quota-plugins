@@ -1,6 +1,8 @@
 #include "CodexQuotaCore.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cwctype>
 #include <cwchar>
 #include <ctime>
 #include <iomanip>
@@ -209,8 +211,8 @@ std::optional<std::string> FindJsonObject(const std::string& json, const std::st
         return std::nullopt;
     }
 
-    const auto object_start = json.find('{', colon_pos + 1);
-    if (object_start == std::string::npos)
+    const auto object_start = json.find_first_not_of(" \t\r\n", colon_pos + 1);
+    if (object_start == std::string::npos || json[object_start] != '{')
     {
         return std::nullopt;
     }
@@ -364,6 +366,48 @@ std::optional<codexquota::RateWindow> ParseRateWindow(const std::string& object_
     return window;
 }
 
+std::optional<codexquota::RateWindow> ParseSpendControlWindow(const std::string& object_json)
+{
+    auto used_percent = FindJsonDouble(object_json, "used_percent");
+    if (!used_percent.has_value())
+    {
+        if (const auto remaining_percent = FindJsonDouble(object_json, "remaining_percent"))
+        {
+            used_percent = 100.0 - *remaining_percent;
+        }
+    }
+    if (!used_percent.has_value())
+    {
+        const auto limit = FindJsonDouble(object_json, "limit");
+        const auto used = FindJsonDouble(object_json, "used");
+        if (limit.has_value() && used.has_value() && *limit > 0.0)
+        {
+            used_percent = *used / *limit * 100.0;
+        }
+    }
+    if (!used_percent.has_value())
+    {
+        return std::nullopt;
+    }
+
+    codexquota::RateWindow window;
+    window.present = true;
+    window.used_percent = std::clamp(*used_percent, 0.0, 100.0);
+    if (const auto reset_at = FindJsonInt64(object_json, "reset_at"))
+    {
+        window.reset_at = *reset_at;
+    }
+    else if (const auto resets_at = FindJsonInt64(object_json, "resets_at"))
+    {
+        window.reset_at = *resets_at;
+    }
+    if (const auto seconds = FindJsonInt64(object_json, "limit_window_seconds"))
+    {
+        window.limit_window_seconds = static_cast<int>(*seconds);
+    }
+    return window;
+}
+
 std::wstring QuotaDisplayModeText(codexquota::QuotaDisplayMode mode)
 {
     return mode == codexquota::QuotaDisplayMode::Used ? L"used" : L"remaining";
@@ -445,34 +489,54 @@ std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstrin
         snapshot.plan_type = ToWide(*plan);
     }
 
-    const auto rate_limit = FindJsonObject(json, "rate_limit");
-    if (!rate_limit.has_value())
+    if (const auto rate_limit = FindJsonObject(json, "rate_limit"))
     {
-        error = L"Codex usage response does not contain rate_limit.";
-        return std::nullopt;
-    }
-
-    const auto primary_object = FindJsonObject(*rate_limit, "primary_window");
-    if (!primary_object.has_value())
-    {
-        error = L"Codex usage response does not contain primary_window.";
-        return std::nullopt;
-    }
-
-    const auto primary = ParseRateWindow(*primary_object, true, error);
-    if (!primary.has_value())
-    {
-        return std::nullopt;
-    }
-    snapshot.primary = *primary;
-
-    if (const auto secondary_object = FindJsonObject(*rate_limit, "secondary_window"))
-    {
-        const auto secondary = ParseRateWindow(*secondary_object, false, error);
-        if (secondary.has_value())
+        if (const auto primary_object = FindJsonObject(*rate_limit, "primary_window"))
         {
-            snapshot.secondary = *secondary;
+            const auto primary = ParseRateWindow(*primary_object, true, error);
+            if (!primary.has_value())
+            {
+                return std::nullopt;
+            }
+            snapshot.primary = *primary;
         }
+
+        if (const auto secondary_object = FindJsonObject(*rate_limit, "secondary_window"))
+        {
+            const auto secondary = ParseRateWindow(*secondary_object, false, error);
+            if (secondary.has_value())
+            {
+                snapshot.secondary = *secondary;
+            }
+        }
+    }
+
+    if (const auto spend_control = FindJsonObject(json, "spend_control"))
+    {
+        if (const auto individual_limit = FindJsonObject(*spend_control, "individual_limit"))
+        {
+            if (const auto monthly = ParseSpendControlWindow(*individual_limit))
+            {
+                snapshot.monthly = *monthly;
+            }
+        }
+    }
+
+    if (!snapshot.monthly.present)
+    {
+        if (const auto individual_limit = FindJsonObject(json, "individual_limit"))
+        {
+            if (const auto monthly = ParseSpendControlWindow(*individual_limit))
+            {
+                snapshot.monthly = *monthly;
+            }
+        }
+    }
+
+    if (!snapshot.primary.present && !snapshot.secondary.present && !snapshot.monthly.present)
+    {
+        error = L"Codex usage response does not contain a supported quota window.";
+        return std::nullopt;
     }
 
     return snapshot;
@@ -515,6 +579,44 @@ std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstri
     }
 
     return config;
+}
+
+std::optional<std::wstring> NormalizeProxyUrl(const std::wstring& value)
+{
+    auto proxy = Trim(value);
+    if (proxy.empty())
+    {
+        return std::nullopt;
+    }
+
+    std::wstring lower_proxy(proxy.size(), L'\0');
+    std::transform(proxy.begin(), proxy.end(), lower_proxy.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    if (lower_proxy.rfind(L"http://", 0) == 0)
+    {
+        proxy.erase(0, 7);
+    }
+    else if (lower_proxy.rfind(L"https://", 0) == 0)
+    {
+        proxy.erase(0, 8);
+    }
+    else if (proxy.find(L"://") != std::wstring::npos)
+    {
+        return std::nullopt;
+    }
+
+    while (!proxy.empty() && proxy.back() == L'/')
+    {
+        proxy.pop_back();
+    }
+    if (proxy.empty()
+        || proxy.find_first_of(L"/?#") != std::wstring::npos
+        || proxy.find(L'@') != std::wstring::npos)
+    {
+        return std::nullopt;
+    }
+    return proxy;
 }
 
 std::wstring SerializeConfigJson(const PluginConfig& config)

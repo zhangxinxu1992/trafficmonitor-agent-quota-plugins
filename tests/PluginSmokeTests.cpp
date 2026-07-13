@@ -284,6 +284,7 @@ void VerifySampleTextForConfig(
     const char* config_json,
     const wchar_t* expected_five_hour_sample,
     const wchar_t* expected_weekly_sample,
+    const wchar_t* expected_monthly_sample,
     const char* case_name)
 {
     const auto appdata = CreateIsolatedAppDataDir();
@@ -308,8 +309,10 @@ void VerifySampleTextForConfig(
     {
         IPluginItem* five_hour = plugin->GetItem(0);
         IPluginItem* weekly = plugin->GetItem(1);
+        IPluginItem* monthly = plugin->GetItem(2);
         Check(five_hour != nullptr, "sample smoke case 5h item should exist");
         Check(weekly != nullptr, "sample smoke case weekly item should exist");
+        Check(monthly != nullptr, "sample smoke case monthly item should exist");
         if (five_hour != nullptr)
         {
             Check(std::wstring(five_hour->GetItemValueSampleText()) == expected_five_hour_sample,
@@ -319,6 +322,11 @@ void VerifySampleTextForConfig(
         {
             Check(std::wstring(weekly->GetItemValueSampleText()) == expected_weekly_sample,
                 "weekly sample should follow Codex display config");
+        }
+        if (monthly != nullptr)
+        {
+            Check(std::wstring(monthly->GetItemValueSampleText()) == expected_monthly_sample,
+                "monthly sample should follow Codex display config");
         }
     }
 
@@ -357,9 +365,11 @@ int main()
 
         IPluginItem* five_hour = plugin->GetItem(0);
         IPluginItem* weekly = plugin->GetItem(1);
+        IPluginItem* monthly = plugin->GetItem(2);
         Check(five_hour != nullptr, "first item should exist");
         Check(weekly != nullptr, "second item should exist");
-        Check(plugin->GetItem(2) == nullptr, "third item should not exist");
+        Check(monthly != nullptr, "third item should exist");
+        Check(plugin->GetItem(3) == nullptr, "fourth item should not exist");
 
         if (five_hour != nullptr)
         {
@@ -381,29 +391,49 @@ int main()
             Check(weekly->IsDrawResourceUsageGraph() == 1, "weekly item should opt into TrafficMonitor resource graph drawing");
             Check(weekly->GetResourceUsageGraphValue() == 0.0f, "weekly graph value should be empty before first refresh");
         }
+        if (monthly != nullptr)
+        {
+            Check(std::wstring(monthly->GetItemId()) == L"CodexQuotaMonth", "monthly item id should match");
+            Check(std::wstring(monthly->GetItemName()) == L"TrafficMonitor Codex Month", "monthly item name should match");
+            Check(std::wstring(monthly->GetItemLableText()) == L"CX 1mo:", "monthly label should use the CX prefix");
+            Check(std::wstring(monthly->GetItemValueSampleText()) == L" 100%", "monthly sample should omit hidden reset info");
+            Check(std::wstring(monthly->GetItemValueText()) == L" ...", "monthly initial value should include visible spacing before loading");
+            Check(monthly->IsDrawResourceUsageGraph() == 1, "monthly item should opt into TrafficMonitor resource graph drawing");
+            Check(monthly->GetResourceUsageGraphValue() == 0.0f, "monthly graph value should be empty before first refresh");
+        }
 
-        if (RunLiveRefresh() && five_hour != nullptr && weekly != nullptr)
+        if (RunLiveRefresh() && five_hour != nullptr && weekly != nullptr && monthly != nullptr)
         {
             plugin->DataRequired();
             std::wstring five_hour_value;
             std::wstring weekly_value;
+            std::wstring monthly_value;
             for (int attempt = 0; attempt < 100; ++attempt)
             {
                 Sleep(100);
                 five_hour_value = five_hour->GetItemValueText();
                 weekly_value = weekly->GetItemValueText();
-                if (Contains(five_hour_value, L"%") && Contains(weekly_value, L"%"))
+                monthly_value = monthly->GetItemValueText();
+                if (Contains(five_hour_value, L"%")
+                    || Contains(weekly_value, L"%")
+                    || Contains(monthly_value, L"%"))
                 {
                     break;
                 }
             }
 
-            Check(Contains(five_hour_value, L"%"), "live 5h plugin value should contain a percent");
-            Check(StartsWith(five_hour_value, L" "), "live 5h plugin value should include visible spacing before the percent");
-            Check(!ContainsResetIndicator(five_hour_value), "live 5h plugin value should omit hidden reset info");
-            Check(Contains(weekly_value, L"%"), "live weekly plugin value should contain a percent");
-            Check(StartsWith(weekly_value, L" "), "live weekly plugin value should include visible spacing before the percent");
-            Check(!ContainsResetIndicator(weekly_value), "live weekly plugin value should omit hidden reset info");
+            const std::wstring values[] = {five_hour_value, weekly_value, monthly_value};
+            bool found_percent = false;
+            for (const auto& value : values)
+            {
+                if (Contains(value, L"%"))
+                {
+                    found_percent = true;
+                    Check(StartsWith(value, L" "), "live Codex plugin value should include visible spacing before the percent");
+                    Check(!ContainsResetIndicator(value), "live Codex plugin value should omit hidden reset info");
+                }
+            }
+            Check(found_percent, "live Codex plugin should expose at least one available quota window");
         }
     }
 
@@ -417,6 +447,7 @@ int main()
         "}\n",
         L" 100% 4h 59m",
         L" 100% 6d 23h",
+        L" 100% 4w 3d",
         "Codex countdown sample smoke case should load the plugin");
 
     VerifySampleTextForConfig(
@@ -425,6 +456,7 @@ int main()
         "  \"reset_display\": \"time\",\n"
         "  \"show_reset_info\": true\n"
         "}\n",
+        L" 100% 12-31 23:59",
         L" 100% 12-31 23:59",
         L" 100% 12-31 23:59",
         "Codex reset-time sample smoke case should load the plugin");

@@ -4,14 +4,15 @@
 
 Build a x64 TrafficMonitor plugin DLL that shows the user's Codex quota percentage in the taskbar and main TrafficMonitor display.
 
-The plugin exposes two display items:
+The plugin exposes three display items:
 
 - `CX 5h:`: percentage of the Codex 5-hour primary rate window plus reset information.
 - `CX 7d:`: percentage of the Codex 7-day secondary rate window plus reset information.
+- `CX 1mo:`: percentage of the monthly workspace spend-control window returned for company accounts plus reset information.
 
 Values use compact text, for example `CX 5h: 76% 42m` or `CX 7d: 90% 6d 1h`. By default the percentage is remaining quota and the suffix is the countdown until that quota window resets. The user can switch the percentage to used quota, hide reset information, or show visible reset information as local reset time. The taskbar value text starts with a regular space so spacing remains visible after TrafficMonitor trims plugin-label edges. `GetItemValueSampleText()` follows the current display mode: countdown mode uses compact samples such as ` 100% 4h 59m` or ` 100% 6d 23h`, reset-time mode reserves enough width for values such as ` 100% 12-31 23:59`, and hidden reset mode reserves only ` 100%`.
 
-When TrafficMonitor's taskbar resource usage graph is enabled, both Codex
+When TrafficMonitor's taskbar resource usage graph is enabled, all Codex
 items opt into the host graph API. The graph value always represents used
 quota: it returns `used_percent` regardless of whether the text is configured
 to show remaining or used quota. Before the first successful refresh, or when a
@@ -24,14 +25,27 @@ The plugin follows the Win-CodexBar Codex provider approach:
 1. Read Codex credentials from `%CODEX_HOME%\auth.json` when `CODEX_HOME` is set, otherwise `%USERPROFILE%\.codex\auth.json`.
 2. Use the `OPENAI_API_KEY` field from the Codex auth file if present, otherwise use `tokens.access_token`.
 3. Add `ChatGPT-Account-Id` when `tokens.account_id` is present.
-4. Send a read-only HTTPS GET request to `https://chatgpt.com/backend-api/wham/usage`.
-5. Parse:
+4. Use `HTTPS_PROXY` or `HTTP_PROXY` when either environment variable contains an HTTP proxy; otherwise use the Windows system proxy configuration.
+5. Send a read-only HTTPS GET request to `https://chatgpt.com/backend-api/wham/usage`.
+6. Parse:
    - `rate_limit.primary_window.used_percent`
    - `rate_limit.primary_window.limit_window_seconds`
    - `rate_limit.primary_window.reset_at`
    - `rate_limit.secondary_window.used_percent`
    - `rate_limit.secondary_window.limit_window_seconds`
    - `rate_limit.secondary_window.reset_at`
+   - `spend_control.individual_limit.used_percent`
+   - `spend_control.individual_limit.remaining_percent`
+   - `spend_control.individual_limit.limit`
+   - `spend_control.individual_limit.used`
+   - `spend_control.individual_limit.reset_at`
+
+Personal accounts normally return the 5-hour primary and 7-day secondary
+windows. A verified Business response instead returned `rate_limit: null` and
+`spend_control.individual_limit` with source `workspace_spend_controls`. That
+object represents a calendar-month workspace allocation. The parser prefers
+`used_percent`, falls back to `100 - remaining_percent`, and finally derives
+the percentage from `used / limit`.
 
 The first version intentionally ignores `additional_rate_limits`, including Spark-specific quota windows.
 
@@ -59,9 +73,10 @@ The display item value is:
 
 - `...` before the first fetch completes.
 - `<n>% <reset>` when the matching window is available.
+- `N/A` after a successful fetch when that account does not provide the matching window.
 - `ERR` when the most recent refresh failed and no valid value is available.
 
-The tooltip includes the plan, both windows, reset information, last refresh status, and the last error message when present.
+The tooltip includes the plan, all three windows, reset information, last refresh status, and the last error message when present.
 
 ## Error Handling
 
