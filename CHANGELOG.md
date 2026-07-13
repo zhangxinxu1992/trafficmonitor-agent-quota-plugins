@@ -1,16 +1,18 @@
 # Changelog
 
-## Unreleased
+## v1.6
 
-### Added
+### 新增
 
-- Added a `CX 1mo:` TrafficMonitor item for the monthly workspace spend-control quota returned by Codex Business and Enterprise accounts.
-- Added parser, smoke-test, and live-test coverage for accounts whose usage response has no 5-hour or 7-day rate-limit windows.
+- 新增 `CX 1mo:` TrafficMonitor 显示项，用于展示 Codex Business 和 Enterprise 账户返回的工作区月度支出控制额度。
+- 补充解析器、插件冒烟测试和实时测试覆盖，支持用量响应中不包含 5 小时或 7 天限额窗口的账户。
 
-### Changed
+### 变更
 
-- Unavailable Codex quota items now show `N/A` after a successful refresh instead of continuing to show a loading placeholder.
-- Codex quota requests now honor `HTTPS_PROXY` and `HTTP_PROXY`, allowing live refreshes on company networks that require an explicit proxy.
+- 成功刷新后，不可用的 Codex 额度项现在显示 `N/A`，不再持续显示加载占位符。
+- Codex 额度请求现在支持 `HTTPS_PROXY` 和 `HTTP_PROXY`，并在未设置环境变量时回退到 Windows 自动代理配置。
+
+**完整变更记录**：https://github.com/zhangxinxu1992/trafficmonitor-agent-quota-plugins/compare/v1.5...v1.6
 
 ## v1.5
 
