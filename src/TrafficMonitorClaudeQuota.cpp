@@ -209,6 +209,78 @@ bool SameDisplayOptions(const claudequota::DisplayOptions& lhs, const claudequot
         && lhs.show_reset_info == rhs.show_reset_info;
 }
 
+int FallbackSystemDpi()
+{
+    HDC dc = GetDC(nullptr);
+    if (dc == nullptr)
+    {
+        return 96;
+    }
+    const int dpi = GetDeviceCaps(dc, LOGPIXELSX);
+    ReleaseDC(nullptr, dc);
+    return dpi > 0 ? dpi : 96;
+}
+
+int DialogDpi(HWND parent)
+{
+    const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32 != nullptr && parent != nullptr && IsWindow(parent))
+    {
+        using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
+        auto* get_dpi_for_window = reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(user32, "GetDpiForWindow"));
+        if (get_dpi_for_window != nullptr)
+        {
+            const UINT dpi = get_dpi_for_window(parent);
+            if (dpi > 0)
+            {
+                return static_cast<int>(dpi);
+            }
+        }
+    }
+    return FallbackSystemDpi();
+}
+
+int ScaleForDpi(int value, int dpi)
+{
+    return MulDiv(value, dpi, 96);
+}
+
+HFONT CreateDialogFont(int point_size, int weight, int dpi)
+{
+    return CreateFontW(
+        -MulDiv(point_size, dpi, 72),
+        0,
+        0,
+        0,
+        weight,
+        FALSE,
+        FALSE,
+        FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE,
+        L"Segoe UI");
+}
+
+void AdjustWindowRectForDpi(RECT* rect, DWORD style, DWORD ex_style, int dpi)
+{
+    const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32 != nullptr)
+    {
+        using AdjustWindowRectExForDpiFn = BOOL(WINAPI*)(LPRECT, DWORD, BOOL, DWORD, UINT);
+        auto* adjust_for_dpi = reinterpret_cast<AdjustWindowRectExForDpiFn>(
+            GetProcAddress(user32, "AdjustWindowRectExForDpi"));
+        if (adjust_for_dpi != nullptr)
+        {
+            adjust_for_dpi(rect, style, FALSE, ex_style, static_cast<UINT>(dpi));
+            return;
+        }
+    }
+    AdjustWindowRectEx(rect, style, FALSE, ex_style);
+}
+
 void CenterWindow(HWND window, HWND parent)
 {
     RECT window_rect{};
@@ -241,6 +313,10 @@ struct OptionsDialogState
     CredentialAction credential_action{CredentialAction::None};
     std::wstring session_key_input;
     bool accepted{};
+    int dpi{96};
+    HFONT title_font{};
+    HFONT body_font{};
+    HWND title_hwnd{};
 };
 
 void CaptureDisplayOptions(HWND window, OptionsDialogState& state)
@@ -264,41 +340,87 @@ LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LP
         const auto* create = reinterpret_cast<CREATESTRUCTW*>(l_param);
         state = static_cast<OptionsDialogState*>(create->lpCreateParams);
         SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
-        auto* font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
-        CreateWindowExW(0, L"STATIC", L"Claude web authentication", WS_CHILD | WS_VISIBLE, 18, 16, 420, 22, window, nullptr, nullptr, nullptr);
+        RECT client{};
+        GetClientRect(window, &client);
+        const int margin = ScaleForDpi(18, state->dpi);
+        const int content_width = client.right - client.left - margin * 2;
+        int y = ScaleForDpi(16, state->dpi);
+
+        state->title_hwnd = CreateWindowExW(
+            0,
+            L"STATIC",
+            L"Claude web authentication",
+            WS_CHILD | WS_VISIBLE,
+            margin,
+            y,
+            content_width,
+            ScaleForDpi(26, state->dpi),
+            window,
+            nullptr,
+            nullptr,
+            nullptr);
+        y += ScaleForDpi(31, state->dpi);
         CreateWindowExW(0, L"STATIC",
             claudequota::HasStoredSessionKey() ? L"Stored sessionKey: configured" : L"Stored sessionKey: not configured",
-            WS_CHILD | WS_VISIBLE, 18, 43, 420, 20, window, nullptr, nullptr, nullptr);
-        CreateWindowExW(0, L"STATIC", L"Paste the sessionKey value or full Cookie header from claude.ai:", WS_CHILD | WS_VISIBLE, 18, 70, 420, 20, window, nullptr, nullptr, nullptr);
+            WS_CHILD | WS_VISIBLE, margin, y, content_width, ScaleForDpi(22, state->dpi), window, nullptr, nullptr, nullptr);
+        y += ScaleForDpi(27, state->dpi);
+        CreateWindowExW(0, L"STATIC", L"Paste the sessionKey value or full Cookie header from claude.ai:", WS_CHILD | WS_VISIBLE,
+            margin, y, content_width, ScaleForDpi(22, state->dpi), window, nullptr, nullptr, nullptr);
+        y += ScaleForDpi(26, state->dpi);
+        const int clear_width = ScaleForDpi(100, state->dpi);
+        const int control_gap = ScaleForDpi(8, state->dpi);
+        const int clear_x = client.right - margin - clear_width;
         CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_PASSWORD,
-            18, 94, 328, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSessionKeyEdit)), nullptr, nullptr);
+            margin, y, clear_x - control_gap - margin, ScaleForDpi(25, state->dpi), window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSessionKeyEdit)), nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Clear saved", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            354, 93, 92, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearSessionKeyButton)), nullptr, nullptr);
+            clear_x, y - ScaleForDpi(1, state->dpi), clear_width, ScaleForDpi(27, state->dpi), window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearSessionKeyButton)), nullptr, nullptr);
+        y += ScaleForDpi(30, state->dpi);
         CreateWindowExW(0, L"STATIC", L"Leave this field blank to keep the current credential. Environment variables override it.", WS_CHILD | WS_VISIBLE,
-            18, 123, 428, 20, window, nullptr, nullptr, nullptr);
+            margin, y, content_width, ScaleForDpi(36, state->dpi), window, nullptr, nullptr, nullptr);
 
-        CreateWindowExW(0, L"STATIC", L"Quota:", WS_CHILD | WS_VISIBLE, 18, 160, 90, 22, window, nullptr, nullptr, nullptr);
+        y += ScaleForDpi(45, state->dpi);
+        CreateWindowExW(0, L"STATIC", L"Quota:", WS_CHILD | WS_VISIBLE,
+            margin, y, ScaleForDpi(90, state->dpi), ScaleForDpi(22, state->dpi), window, nullptr, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Remaining", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP | BS_AUTORADIOBUTTON,
-            112, 158, 110, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQuotaRemainingRadio)), nullptr, nullptr);
+            margin + ScaleForDpi(94, state->dpi), y - ScaleForDpi(2, state->dpi), ScaleForDpi(120, state->dpi), ScaleForDpi(24, state->dpi),
+            window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQuotaRemainingRadio)), nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Used", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-            230, 158, 80, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQuotaUsedRadio)), nullptr, nullptr);
-        CreateWindowExW(0, L"STATIC", L"Reset:", WS_CHILD | WS_VISIBLE, 18, 194, 90, 22, window, nullptr, nullptr, nullptr);
+            margin + ScaleForDpi(224, state->dpi), y - ScaleForDpi(2, state->dpi), ScaleForDpi(90, state->dpi), ScaleForDpi(24, state->dpi),
+            window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQuotaUsedRadio)), nullptr, nullptr);
+        y += ScaleForDpi(36, state->dpi);
+        CreateWindowExW(0, L"STATIC", L"Reset:", WS_CHILD | WS_VISIBLE,
+            margin, y, ScaleForDpi(90, state->dpi), ScaleForDpi(22, state->dpi), window, nullptr, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Show reset info", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
-            112, 192, 150, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kShowResetInfoCheckbox)), nullptr, nullptr);
+            margin + ScaleForDpi(94, state->dpi), y - ScaleForDpi(2, state->dpi), ScaleForDpi(170, state->dpi), ScaleForDpi(24, state->dpi),
+            window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kShowResetInfoCheckbox)), nullptr, nullptr);
+        y += ScaleForDpi(32, state->dpi);
         CreateWindowExW(0, L"BUTTON", L"Countdown", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP | BS_AUTORADIOBUTTON,
-            112, 222, 110, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kResetCountdownRadio)), nullptr, nullptr);
+            margin + ScaleForDpi(94, state->dpi), y, ScaleForDpi(120, state->dpi), ScaleForDpi(24, state->dpi), window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kResetCountdownRadio)), nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Reset time", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
-            230, 222, 110, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kResetTimeRadio)), nullptr, nullptr);
+            margin + ScaleForDpi(224, state->dpi), y, ScaleForDpi(120, state->dpi), ScaleForDpi(24, state->dpi), window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kResetTimeRadio)), nullptr, nullptr);
+
+        const int button_height = ScaleForDpi(30, state->dpi);
+        const int button_width = ScaleForDpi(92, state->dpi);
+        const int button_gap = ScaleForDpi(10, state->dpi);
+        const int button_y = client.bottom - margin - button_height;
+        int button_x = client.right - margin - button_width;
         CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
-            260, 272, 88, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
+            button_x - button_gap - button_width, button_y, button_width, button_height, window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            358, 272, 88, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), nullptr, nullptr);
+            button_x, button_y, button_width, button_height, window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), nullptr, nullptr);
 
         EnumChildWindows(window, [](HWND child, LPARAM value) -> BOOL {
             SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(value), TRUE);
             return TRUE;
-        }, reinterpret_cast<LPARAM>(font));
+        }, reinterpret_cast<LPARAM>(state->body_font));
+        SendMessageW(state->title_hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(state->title_font), TRUE);
         CheckRadioButton(window, kQuotaRemainingRadio, kQuotaUsedRadio,
             state->config.display.quota_display == claudequota::QuotaDisplayMode::Used ? kQuotaUsedRadio : kQuotaRemainingRadio);
         CheckRadioButton(window, kResetCountdownRadio, kResetTimeRadio,
@@ -375,21 +497,33 @@ bool ShowOptionsDialog(HWND parent, OptionsDialogState& state)
         return false;
     }
 
+    state.dpi = DialogDpi(parent);
+    state.title_font = CreateDialogFont(13, FW_NORMAL, state.dpi);
+    state.body_font = CreateDialogFont(9, FW_NORMAL, state.dpi);
+    const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    const DWORD ex_style = WS_EX_CONTROLPARENT | WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE;
+    RECT window_rect{0, 0, ScaleForDpi(500, state.dpi), ScaleForDpi(340, state.dpi)};
+    AdjustWindowRectForDpi(&window_rect, style, ex_style, state.dpi);
+
     HWND window = CreateWindowExW(
-        WS_EX_CONTROLPARENT | WS_EX_DLGMODALFRAME,
+        ex_style,
         kOptionsDialogClassName,
         L"TrafficMonitor Claude Quota",
-        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        style,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        480,
-        350,
+        window_rect.right - window_rect.left,
+        window_rect.bottom - window_rect.top,
         parent,
         nullptr,
         instance,
         &state);
     if (window == nullptr)
     {
+        DeleteObject(state.title_font);
+        DeleteObject(state.body_font);
+        state.title_font = nullptr;
+        state.body_font = nullptr;
         return false;
     }
 
@@ -420,6 +554,10 @@ bool ShowOptionsDialog(HWND parent, OptionsDialogState& state)
         EnableWindow(parent, TRUE);
         SetActiveWindow(parent);
     }
+    DeleteObject(state.title_font);
+    DeleteObject(state.body_font);
+    state.title_font = nullptr;
+    state.body_font = nullptr;
     return state.accepted;
 }
 

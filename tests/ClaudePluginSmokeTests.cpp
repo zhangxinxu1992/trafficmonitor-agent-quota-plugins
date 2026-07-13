@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 
+#include <atomic>
 #include <chrono>
 #include <iostream>
 #include <string>
@@ -35,10 +36,161 @@ bool LiveTestRequested()
     return GetEnvironmentVariableW(L"TRAFFICMONITOR_CLAUDE_QUOTA_RUN_LIVE_TEST", value, 8) > 0
         && std::wstring(value) == L"1";
 }
+
+struct FindOwnWindowContext
+{
+    const wchar_t* class_name{};
+    const wchar_t* title{};
+    DWORD process_id{};
+    HWND window{};
+};
+
+BOOL CALLBACK FindOwnWindow(HWND window, LPARAM parameter)
+{
+    auto* context = reinterpret_cast<FindOwnWindowContext*>(parameter);
+    DWORD process_id = 0;
+    GetWindowThreadProcessId(window, &process_id);
+    if (process_id != context->process_id)
+    {
+        return TRUE;
+    }
+
+    wchar_t class_name[128]{};
+    wchar_t title[256]{};
+    GetClassNameW(window, class_name, static_cast<int>(_countof(class_name)));
+    GetWindowTextW(window, title, static_cast<int>(_countof(title)));
+    if (std::wstring(class_name) == context->class_name && std::wstring(title) == context->title)
+    {
+        context->window = window;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+HWND FindOwnWindowByClassAndTitle(const wchar_t* class_name, const wchar_t* title)
+{
+    FindOwnWindowContext context{class_name, title, GetCurrentProcessId(), nullptr};
+    EnumWindows(FindOwnWindow, reinterpret_cast<LPARAM>(&context));
+    return context.window;
+}
+
+int SystemDpi()
+{
+    HDC dc = GetDC(nullptr);
+    if (dc == nullptr)
+    {
+        return 96;
+    }
+    const int dpi = GetDeviceCaps(dc, LOGPIXELSX);
+    ReleaseDC(nullptr, dc);
+    return dpi > 0 ? dpi : 96;
+}
+
+int ScaleForDpi(int value, int dpi)
+{
+    return MulDiv(value, dpi, 96);
+}
+
+bool ChildFitsInsideClient(HWND dialog, int control_id, const RECT& client)
+{
+    const HWND child = GetDlgItem(dialog, control_id);
+    if (child == nullptr)
+    {
+        return false;
+    }
+    RECT child_rect{};
+    GetWindowRect(child, &child_rect);
+    MapWindowPoints(nullptr, dialog, reinterpret_cast<POINT*>(&child_rect), 2);
+    return child_rect.left >= client.left
+        && child_rect.top >= client.top
+        && child_rect.right <= client.right
+        && child_rect.bottom <= client.bottom;
+}
+
+void VerifyOptionsDialogUsesDpiScaledLayout(ITMPlugin* plugin)
+{
+    std::atomic<bool> finished{false};
+    std::atomic<DWORD> dialog_thread_id{0};
+    ITMPlugin::OptionReturn result = ITMPlugin::OR_OPTION_CHANGED;
+    std::thread dialog_thread([&] {
+        dialog_thread_id = GetCurrentThreadId();
+        result = plugin->ShowOptionsDialog(nullptr);
+        finished = true;
+    });
+
+    HWND dialog = nullptr;
+    for (int attempt = 0; attempt < 50 && !finished; ++attempt)
+    {
+        dialog = FindOwnWindowByClassAndTitle(
+            L"TrafficMonitorClaudeQuotaOptions",
+            L"TrafficMonitor Claude Quota");
+        if (dialog != nullptr)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    Check(dialog != nullptr, "Claude options dialog should open for DPI layout smoke test");
+    if (dialog != nullptr)
+    {
+        const int dpi = SystemDpi();
+        RECT client{};
+        GetClientRect(dialog, &client);
+        Check(client.right - client.left == ScaleForDpi(500, dpi),
+            "Claude options client width should scale with the current DPI");
+        Check(client.bottom - client.top == ScaleForDpi(340, dpi),
+            "Claude options client height should scale with the current DPI");
+
+        for (const int id : {2201, 2202, 2203, 2204, 2205, 2206, 2207, 2208, IDCANCEL})
+        {
+            Check(ChildFitsInsideClient(dialog, id, client),
+                "every interactive Claude options control should fit inside the client area");
+        }
+
+        const HWND title = FindWindowExW(dialog, nullptr, L"STATIC", L"Claude web authentication");
+        Check(title != nullptr, "Claude options title control should exist");
+        if (title != nullptr)
+        {
+            const auto font = reinterpret_cast<HFONT>(SendMessageW(title, WM_GETFONT, 0, 0));
+            LOGFONTW log_font{};
+            Check(font != nullptr && GetObjectW(font, sizeof(log_font), &log_font) == sizeof(log_font),
+                "Claude options title font should be inspectable");
+            Check(-log_font.lfHeight == MulDiv(13, dpi, 72),
+                "Claude options title font should scale with the current DPI");
+        }
+        PostMessageW(dialog, WM_CLOSE, 0, 0);
+    }
+    else if (dialog_thread_id != 0)
+    {
+        PostThreadMessageW(dialog_thread_id, WM_QUIT, 0, 0);
+    }
+
+    for (int attempt = 0; attempt < 50 && !finished; ++attempt)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (dialog_thread.joinable())
+    {
+        if (finished)
+        {
+            dialog_thread.join();
+            Check(result == ITMPlugin::OR_OPTION_UNCHANGED,
+                "closing Claude options should leave options unchanged");
+        }
+        else
+        {
+            Check(false, "Claude options DPI layout smoke test should finish");
+            dialog_thread.detach();
+        }
+    }
+}
 }
 
 int wmain()
 {
+    SetProcessDPIAware();
+
     const auto dll_path = CurrentExeDir() + L"\\TrafficMonitorClaudeQuota.dll";
     const HMODULE module = LoadLibraryW(dll_path.c_str());
     Check(module != nullptr, "Claude plugin DLL should load");
@@ -73,6 +225,8 @@ int wmain()
             Check(item->IsDrawResourceUsageGraph() == 1, "Claude item should enable graph support");
             Check(item->GetResourceUsageGraphValue() == 0.0f, "graph should be empty before refresh");
         }
+
+        VerifyOptionsDialogUsesDpiScaledLayout(plugin);
 
         if (LiveTestRequested())
         {
