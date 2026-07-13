@@ -408,7 +408,7 @@ int main()
             std::wstring five_hour_value;
             std::wstring weekly_value;
             std::wstring monthly_value;
-            for (int attempt = 0; attempt < 100; ++attempt)
+            for (int attempt = 0; attempt < 700; ++attempt)
             {
                 Sleep(100);
                 five_hour_value = five_hour->GetItemValueText();
@@ -416,7 +416,10 @@ int main()
                 monthly_value = monthly->GetItemValueText();
                 if (Contains(five_hour_value, L"%")
                     || Contains(weekly_value, L"%")
-                    || Contains(monthly_value, L"%"))
+                    || Contains(monthly_value, L"%")
+                    || Contains(five_hour_value, L"ERR")
+                    || Contains(weekly_value, L"ERR")
+                    || Contains(monthly_value, L"ERR"))
                 {
                     break;
                 }
@@ -432,6 +435,10 @@ int main()
                     Check(StartsWith(value, L" "), "live Codex plugin value should include visible spacing before the percent");
                     Check(!ContainsResetIndicator(value), "live Codex plugin value should omit hidden reset info");
                 }
+            }
+            if (!found_percent)
+            {
+                std::wcerr << L"LIVE CODEX TOOLTIP: " << plugin->GetTooltipInfo() << L'\n';
             }
             Check(found_percent, "live Codex plugin should expose at least one available quota window");
         }

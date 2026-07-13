@@ -51,6 +51,14 @@ object represents a calendar-month workspace allocation. The parser prefers
 `used_percent`, falls back to `100 - remaining_percent`, and finally derives
 the percentage from `used / limit`.
 
+个人账户的限额窗口按 `limit_window_seconds` 归类，而不是只依赖
+`primary_window` / `secondary_window` 的字段位置：`18000` 秒对应 5 小时，
+`604800` 秒对应 7 天。这样在 ChatGPT 临时取消 5 小时限制、仅把 7 天窗口放入
+`primary_window` 时，插件仍会把它显示在 `CX 7d:`。响应缺少周期字段时才回退到
+原有的位置映射；未知的正数周期不会冒充 5 小时或 7 天窗口。月度工作区额度仍由
+`spend_control.individual_limit` 的结构识别，因为真实 Business 响应不提供
+`limit_window_seconds`。
+
 The first version intentionally ignores `additional_rate_limits`, including Spark-specific quota windows.
 
 ## Claude Data Source

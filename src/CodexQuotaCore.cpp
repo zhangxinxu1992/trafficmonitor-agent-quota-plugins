@@ -366,6 +366,57 @@ std::optional<codexquota::RateWindow> ParseRateWindow(const std::string& object_
     return window;
 }
 
+constexpr int kFiveHourWindowSeconds = 5 * 60 * 60;
+constexpr int kWeeklyWindowSeconds = 7 * 24 * 60 * 60;
+
+void AssignRateWindowByDuration(codexquota::UsageSnapshot& snapshot, const codexquota::RateWindow& window)
+{
+    if (window.limit_window_seconds == kFiveHourWindowSeconds)
+    {
+        if (!snapshot.primary.present)
+        {
+            snapshot.primary = window;
+        }
+        return;
+    }
+    if (window.limit_window_seconds == kWeeklyWindowSeconds)
+    {
+        if (!snapshot.secondary.present)
+        {
+            snapshot.secondary = window;
+        }
+        return;
+    }
+}
+
+void AssignRateWindows(
+    codexquota::UsageSnapshot& snapshot,
+    const std::optional<codexquota::RateWindow>& primary_source,
+    const std::optional<codexquota::RateWindow>& secondary_source)
+{
+    if (primary_source.has_value())
+    {
+        AssignRateWindowByDuration(snapshot, *primary_source);
+    }
+    if (secondary_source.has_value())
+    {
+        AssignRateWindowByDuration(snapshot, *secondary_source);
+    }
+
+    if (primary_source.has_value()
+        && primary_source->limit_window_seconds <= 0
+        && !snapshot.primary.present)
+    {
+        snapshot.primary = *primary_source;
+    }
+    if (secondary_source.has_value()
+        && secondary_source->limit_window_seconds <= 0
+        && !snapshot.secondary.present)
+    {
+        snapshot.secondary = *secondary_source;
+    }
+}
+
 std::optional<codexquota::RateWindow> ParseSpendControlWindow(const std::string& object_json)
 {
     auto used_percent = FindJsonDouble(object_json, "used_percent");
@@ -491,6 +542,9 @@ std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstrin
 
     if (const auto rate_limit = FindJsonObject(json, "rate_limit"))
     {
+        std::optional<RateWindow> primary_source;
+        std::optional<RateWindow> secondary_source;
+
         if (const auto primary_object = FindJsonObject(*rate_limit, "primary_window"))
         {
             const auto primary = ParseRateWindow(*primary_object, true, error);
@@ -498,7 +552,7 @@ std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstrin
             {
                 return std::nullopt;
             }
-            snapshot.primary = *primary;
+            primary_source = *primary;
         }
 
         if (const auto secondary_object = FindJsonObject(*rate_limit, "secondary_window"))
@@ -506,9 +560,11 @@ std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstrin
             const auto secondary = ParseRateWindow(*secondary_object, false, error);
             if (secondary.has_value())
             {
-                snapshot.secondary = *secondary;
+                secondary_source = *secondary;
             }
         }
+
+        AssignRateWindows(snapshot, primary_source, secondary_source);
     }
 
     if (const auto spend_control = FindJsonObject(json, "spend_control"))
