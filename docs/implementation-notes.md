@@ -165,37 +165,31 @@ The Claude plugin is built as `TrafficMonitorClaudeQuota.dll` and exposes:
 - `ClaudeQuotaWeek` with label `CL 7d:`
 - `ClaudeQuotaMonth` with label `CL 1mo:`
 
-The preferred source follows Win-CodexBar's Claude web provider so Enterprise
-spend limits match `https://claude.ai/settings/usage`:
+The plugin uses Claude Code as its only authentication source. It reads
+`%USERPROFILE%\.claude\.credentials.json`, selects `accessToken` and
+`rateLimitTier` only from the `claudeAiOauth` object, and calls
+`GET https://api.anthropic.com/api/oauth/usage` with
+`anthropic-beta: oauth-2025-04-20`. The parser deliberately ignores same-named
+fields inside `mcpOAuth`.
 
-- `GET https://claude.ai/api/account`
-- `GET https://claude.ai/api/organizations/{organization_id}/usage`
-- `GET https://claude.ai/api/organizations/{organization_id}/overage_spend_limit`
+Opening Options checks for readable Claude Code OAuth credentials first. When
+they are missing, the plugin asks the user whether to start
+`claude auth login`, launches it in a new console, waits for completion, and
+opens display settings only after the new credentials pass parsing.
 
-The plugin accepts a raw `sessionKey` or full `Cookie` header in its options,
-keeps only `sessionKey`, and stores it at Credential Manager target
-`TrafficMonitorClaudeQuota:ClaudeWebSession` using `CRED_TYPE_GENERIC` and
-`CRED_PERSIST_LOCAL_MACHINE`. `CLAUDE_AI_SESSION_KEY` and
-`CLAUDE_WEB_SESSION_KEY` override the stored credential. The JSON config never
-contains authentication data.
-
-Chrome and Edge App-Bound Encryption blocks reliable third-party cookie import.
-Manual paste is therefore intentional, not a missing automatic sign-in step.
-
-If no web session is configured, the plugin reads
-`%USERPROFILE%\.claude\.credentials.json` and calls
-`GET https://api.anthropic.com/api/oauth/usage` with the Claude Code OAuth token
-and `anthropic-beta: oauth-2025-04-20`.
+The current plugin does not accept or store claude.ai Web `sessionKey` values.
+That provider is reserved as a future supplementary source only if Claude Code's
+OAuth endpoint stops returning a required quota field.
 
 Response fields used include:
 
 - `five_hour.utilization` and `five_hour.resets_at`
 - `seven_day.utilization` and `seven_day.resets_at`
-- `monthly_credit_limit` or `monthly_limit`
+- `extra_usage.monthly_limit`
 - `used_credits`
 - `is_enabled`
 
-The Enterprise monthly percentage is `used_credits / monthly_credit_limit`.
+The Enterprise monthly percentage is `used_credits / monthly_limit`.
 When the API omits a reset timestamp, the reset is the next UTC calendar-month
 boundary, matching a GMT+8 settings-page reset at 08:00 on the first day.
 

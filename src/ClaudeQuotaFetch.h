@@ -15,11 +15,7 @@ struct FetchResult
     int http_status{};
 };
 
-std::wstring GetClaudeSessionCredentialTarget();
-std::optional<std::wstring> ReadStoredSessionKey(std::wstring& error);
-bool WriteStoredSessionKey(const std::wstring& input, std::wstring& error);
-bool DeleteStoredSessionKey(std::wstring& error);
-bool HasStoredSessionKey();
 std::wstring GetDefaultOAuthCredentialsPath();
+std::optional<OAuthCredentials> ReadClaudeCodeOAuthCredentials(std::wstring& error);
 FetchResult FetchUsageSnapshot();
 }

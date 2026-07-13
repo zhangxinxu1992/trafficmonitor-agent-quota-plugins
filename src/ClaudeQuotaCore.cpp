@@ -302,59 +302,27 @@ namespace claudequota
 std::optional<OAuthCredentials> ParseOAuthCredentialsJson(const std::string& json, std::wstring& error)
 {
     error.clear();
-    const auto access_token = FindJsonStringValue(json, "accessToken");
+    const auto claude_oauth = FindJsonObject(json, "claudeAiOauth");
+    if (!claude_oauth.has_value())
+    {
+        error = L"Claude OAuth credentials were not found. Run claude auth login.";
+        return std::nullopt;
+    }
+
+    const auto access_token = FindJsonStringValue(*claude_oauth, "accessToken");
     if (!access_token.has_value() || Trim(*access_token).empty())
     {
-        error = L"Claude OAuth credentials were not found. Run claude login or configure a web sessionKey.";
+        error = L"Claude OAuth credentials were not found. Run claude auth login.";
         return std::nullopt;
     }
 
     OAuthCredentials credentials;
     credentials.access_token = Utf8ToWide(Trim(*access_token));
-    if (const auto tier = FindJsonStringValue(json, "rateLimitTier"))
+    if (const auto tier = FindJsonStringValue(*claude_oauth, "rateLimitTier"))
     {
         credentials.rate_limit_tier = Utf8ToWide(Trim(*tier));
     }
     return credentials;
-}
-
-std::optional<AccountInfo> ParseAccountJson(const std::string& json, std::wstring& error)
-{
-    error.clear();
-    AccountInfo account;
-
-    if (const auto organization = FindJsonObject(json, "organization"))
-    {
-        if (const auto uuid = FindJsonStringValue(*organization, "uuid"))
-        {
-            account.organization_id = Utf8ToWide(Trim(*uuid));
-        }
-    }
-    if (account.organization_id.empty())
-    {
-        if (const auto uuid = FindJsonStringValue(json, "uuid"))
-        {
-            account.organization_id = Utf8ToWide(Trim(*uuid));
-        }
-    }
-    if (const auto plan = FindJsonStringValue(json, "rate_limit_tier"))
-    {
-        account.plan_type = Utf8ToWide(*plan);
-    }
-    if (account.plan_type.empty())
-    {
-        if (const auto plan = FindJsonStringValue(json, "subscription_type"))
-        {
-            account.plan_type = Utf8ToWide(*plan);
-        }
-    }
-
-    if (account.organization_id.empty())
-    {
-        error = L"Claude account response does not contain an organization id.";
-        return std::nullopt;
-    }
-    return account;
 }
 
 std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstring& error)
@@ -425,41 +393,6 @@ bool ApplySpendLimitJson(const std::string& json, long long now, UsageSnapshot& 
         snapshot.monthly.reset_at = NextUtcMonthStart(now);
     }
     return true;
-}
-
-std::optional<std::wstring> NormalizeSessionKeyInput(const std::wstring& input, std::wstring& error)
-{
-    error.clear();
-    auto value = Trim(input);
-    if (value.empty())
-    {
-        error = L"Claude sessionKey is empty.";
-        return std::nullopt;
-    }
-
-    const auto cookie_pos = value.find(L"sessionKey=");
-    if (cookie_pos != std::wstring::npos)
-    {
-        const auto start = cookie_pos + 11;
-        const auto end = value.find(L';', start);
-        value = Trim(value.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start));
-    }
-    else if (value.find(L'=') != std::wstring::npos || value.find(L';') != std::wstring::npos)
-    {
-        error = L"Cookie input does not contain sessionKey.";
-        return std::nullopt;
-    }
-
-    if (value.size() >= 2 && value.front() == L'"' && value.back() == L'"')
-    {
-        value = value.substr(1, value.size() - 2);
-    }
-    if (value.empty() || value.find_first_of(L"\r\n\0") != std::wstring::npos)
-    {
-        error = L"Claude sessionKey has an invalid value.";
-        return std::nullopt;
-    }
-    return value;
 }
 
 long long NextUtcMonthStart(long long now)

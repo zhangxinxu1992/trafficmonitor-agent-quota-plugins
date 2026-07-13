@@ -14,23 +14,15 @@ using RateWindow = codexquota::RateWindow;
 using ResetDisplayMode = codexquota::ResetDisplayMode;
 using UsageSnapshot = codexquota::UsageSnapshot;
 
-struct AccountInfo
-{
-    std::wstring organization_id;
-    std::wstring plan_type;
-};
-
 struct OAuthCredentials
 {
     std::wstring access_token;
     std::wstring rate_limit_tier;
 };
 
-std::optional<AccountInfo> ParseAccountJson(const std::string& json, std::wstring& error);
 std::optional<OAuthCredentials> ParseOAuthCredentialsJson(const std::string& json, std::wstring& error);
 std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstring& error);
 bool ApplySpendLimitJson(const std::string& json, long long now, UsageSnapshot& snapshot, std::wstring& error);
-std::optional<std::wstring> NormalizeSessionKeyInput(const std::wstring& input, std::wstring& error);
 long long NextUtcMonthStart(long long now);
 
 std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstring& error);

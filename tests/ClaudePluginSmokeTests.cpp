@@ -91,6 +91,133 @@ int ScaleForDpi(int value, int dpi)
     return MulDiv(value, dpi, 96);
 }
 
+struct IsolatedClaudeProfile
+{
+    std::wstring original_user_profile;
+    bool had_original_user_profile{};
+    std::wstring profile_path;
+    std::wstring claude_path;
+    std::wstring credentials_path;
+
+    explicit IsolatedClaudeProfile(bool write_credentials = true)
+    {
+        wchar_t original[32768]{};
+        const DWORD original_length = GetEnvironmentVariableW(
+            L"USERPROFILE",
+            original,
+            static_cast<DWORD>(_countof(original)));
+        if (original_length > 0 && original_length < _countof(original))
+        {
+            original_user_profile.assign(original, original_length);
+            had_original_user_profile = true;
+        }
+
+        wchar_t temp[32768]{};
+        const DWORD temp_length = GetTempPathW(static_cast<DWORD>(_countof(temp)), temp);
+        profile_path.assign(temp, temp_length);
+        profile_path += L"TrafficMonitorClaudeQuotaSmoke-" + std::to_wstring(GetCurrentProcessId());
+        claude_path = profile_path + L"\\.claude";
+        credentials_path = claude_path + L"\\.credentials.json";
+        CreateDirectoryW(profile_path.c_str(), nullptr);
+        CreateDirectoryW(claude_path.c_str(), nullptr);
+
+        if (write_credentials)
+        {
+            static constexpr char kCredentials[] =
+                R"({"claudeAiOauth":{"accessToken":"smoke-token","rateLimitTier":"test"}})";
+            const HANDLE file = CreateFileW(
+                credentials_path.c_str(),
+                GENERIC_WRITE,
+                0,
+                nullptr,
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                nullptr);
+            if (file != INVALID_HANDLE_VALUE)
+            {
+                DWORD written = 0;
+                WriteFile(file, kCredentials, static_cast<DWORD>(sizeof(kCredentials) - 1), &written, nullptr);
+                CloseHandle(file);
+            }
+        }
+        SetEnvironmentVariableW(L"USERPROFILE", profile_path.c_str());
+    }
+
+    ~IsolatedClaudeProfile()
+    {
+        if (had_original_user_profile)
+        {
+            SetEnvironmentVariableW(L"USERPROFILE", original_user_profile.c_str());
+        }
+        else
+        {
+            SetEnvironmentVariableW(L"USERPROFILE", nullptr);
+        }
+        DeleteFileW(credentials_path.c_str());
+        RemoveDirectoryW(claude_path.c_str());
+        RemoveDirectoryW(profile_path.c_str());
+    }
+};
+
+void VerifyOptionsRequiresClaudeCodeLogin(ITMPlugin* plugin)
+{
+    IsolatedClaudeProfile profile(false);
+    std::atomic<bool> finished{false};
+    std::atomic<DWORD> dialog_thread_id{0};
+    ITMPlugin::OptionReturn result = ITMPlugin::OR_OPTION_CHANGED;
+    std::thread dialog_thread([&] {
+        dialog_thread_id = GetCurrentThreadId();
+        result = plugin->ShowOptionsDialog(nullptr);
+        finished = true;
+    });
+
+    HWND prompt = nullptr;
+    for (int attempt = 0; attempt < 50 && !finished; ++attempt)
+    {
+        prompt = FindOwnWindowByClassAndTitle(L"#32770", L"TrafficMonitor Claude Quota");
+        if (prompt != nullptr)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    Check(prompt != nullptr, "Claude options should require sign-in when Claude Code credentials are missing");
+    if (prompt != nullptr)
+    {
+        const HWND no_button = GetDlgItem(prompt, IDNO);
+        Check(no_button != nullptr, "Claude sign-in prompt should let the user decline login");
+        PostMessageW(prompt, WM_COMMAND, MAKEWPARAM(IDNO, BN_CLICKED), reinterpret_cast<LPARAM>(no_button));
+    }
+    else if (dialog_thread_id != 0)
+    {
+        PostThreadMessageW(dialog_thread_id, WM_QUIT, 0, 0);
+    }
+
+    for (int attempt = 0; attempt < 50 && !finished; ++attempt)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (dialog_thread.joinable())
+    {
+        if (finished)
+        {
+            dialog_thread.join();
+            Check(result == ITMPlugin::OR_OPTION_UNCHANGED,
+                "declining Claude Code login should leave options unchanged");
+            Check(FindOwnWindowByClassAndTitle(
+                    L"TrafficMonitorClaudeQuotaOptions",
+                    L"TrafficMonitor Claude Quota") == nullptr,
+                "Claude display settings should not open before login succeeds");
+        }
+        else
+        {
+            Check(false, "Claude sign-in gate smoke test should finish");
+            dialog_thread.detach();
+        }
+    }
+}
+
 bool ChildFitsInsideClient(HWND dialog, int control_id, const RECT& client)
 {
     const HWND child = GetDlgItem(dialog, control_id);
@@ -109,6 +236,7 @@ bool ChildFitsInsideClient(HWND dialog, int control_id, const RECT& client)
 
 void VerifyOptionsDialogUsesDpiScaledLayout(ITMPlugin* plugin)
 {
+    IsolatedClaudeProfile profile;
     std::atomic<bool> finished{false};
     std::atomic<DWORD> dialog_thread_id{0};
     ITMPlugin::OptionReturn result = ITMPlugin::OR_OPTION_CHANGED;
@@ -139,16 +267,16 @@ void VerifyOptionsDialogUsesDpiScaledLayout(ITMPlugin* plugin)
         GetClientRect(dialog, &client);
         Check(client.right - client.left == ScaleForDpi(500, dpi),
             "Claude options client width should scale with the current DPI");
-        Check(client.bottom - client.top == ScaleForDpi(340, dpi),
+        Check(client.bottom - client.top == ScaleForDpi(284, dpi),
             "Claude options client height should scale with the current DPI");
 
-        for (const int id : {2201, 2202, 2203, 2204, 2205, 2206, 2207, 2208, IDCANCEL})
+        for (const int id : {2203, 2204, 2205, 2206, 2207, 2208, IDCANCEL})
         {
             Check(ChildFitsInsideClient(dialog, id, client),
                 "every interactive Claude options control should fit inside the client area");
         }
 
-        const HWND title = FindWindowExW(dialog, nullptr, L"STATIC", L"Claude web authentication");
+        const HWND title = FindWindowExW(dialog, nullptr, L"STATIC", L"Claude quota display");
         Check(title != nullptr, "Claude options title control should exist");
         if (title != nullptr)
         {
@@ -226,6 +354,7 @@ int wmain()
             Check(item->GetResourceUsageGraphValue() == 0.0f, "graph should be empty before refresh");
         }
 
+        VerifyOptionsRequiresClaudeCodeLogin(plugin);
         VerifyOptionsDialogUsesDpiScaledLayout(plugin);
 
         if (LiveTestRequested())

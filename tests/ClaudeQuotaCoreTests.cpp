@@ -32,34 +32,6 @@ long long UtcTime(int year, int month, int day, int hour = 0, int minute = 0)
     return static_cast<long long>(_mkgmtime64(&value));
 }
 
-void TestSessionKeyNormalization()
-{
-    std::wstring error;
-    auto value = claudequota::NormalizeSessionKeyInput(L"  sk-test-value  ", error);
-    Check(value == L"sk-test-value", "raw sessionKey should be trimmed");
-
-    value = claudequota::NormalizeSessionKeyInput(L"other=x; sessionKey=sk-cookie-value; last=y", error);
-    Check(value == L"sk-cookie-value", "Cookie header should yield sessionKey only");
-
-    value = claudequota::NormalizeSessionKeyInput(L"other=x; last=y", error);
-    Check(!value.has_value() && error.find(L"sessionKey") != std::wstring::npos, "unrelated Cookie header should fail");
-}
-
-void TestAccountParsing()
-{
-    const std::string json = R"({
-        "email_address":"user@example.com",
-        "rate_limit_tier":"enterprise",
-        "memberships":[{"organization":{"uuid":"org-123"}}]
-    })";
-
-    std::wstring error;
-    const auto account = claudequota::ParseAccountJson(json, error);
-    Check(account.has_value(), "account response should parse");
-    Check(account && account->organization_id == L"org-123", "organization uuid should parse");
-    Check(account && account->plan_type == L"enterprise", "plan type should parse");
-}
-
 void TestOAuthCredentialParsing()
 {
     std::wstring error;
@@ -69,6 +41,41 @@ void TestOAuthCredentialParsing()
     Check(credentials.has_value(), "Claude Code OAuth credentials should parse");
     Check(credentials && credentials->access_token == L"oauth-token", "OAuth access token should parse");
     Check(credentials && credentials->rate_limit_tier == L"enterprise", "OAuth rate limit tier should parse");
+}
+
+void TestOAuthCredentialParsingIgnoresMcpTokens()
+{
+    std::wstring error;
+    const auto credentials = claudequota::ParseOAuthCredentialsJson(
+        R"({
+            "mcpOAuth": {
+                "ediprod|test": {"accessToken":"", "refreshToken":""},
+                "github|test": {"accessToken":"mcp-token", "refreshToken":"mcp-refresh"}
+            },
+            "claudeAiOauth": {
+                "accessToken":"claude-oauth-token",
+                "rateLimitTier":"enterprise"
+            }
+        })",
+        error);
+
+    Check(credentials.has_value(), "Claude OAuth credentials should parse after unrelated MCP OAuth entries");
+    Check(credentials && credentials->access_token == L"claude-oauth-token",
+        "Claude OAuth parsing should use claudeAiOauth instead of the first accessToken in the file");
+    Check(credentials && credentials->rate_limit_tier == L"enterprise",
+        "Claude OAuth parsing should use the tier inside claudeAiOauth");
+}
+
+void TestOAuthCredentialParsingRejectsMcpOnlyCredentials()
+{
+    std::wstring error;
+    const auto credentials = claudequota::ParseOAuthCredentialsJson(
+        R"({"mcpOAuth":{"github|test":{"accessToken":"mcp-token"}}})",
+        error);
+
+    Check(!credentials.has_value(), "MCP OAuth credentials alone should not authenticate Claude usage");
+    Check(error.find(L"claude auth login") != std::wstring::npos,
+        "missing Claude OAuth credentials should recommend the current Claude Code login command");
 }
 
 void TestUsageParsing()
@@ -154,9 +161,9 @@ void RunLiveTestIfRequested()
 
 int wmain()
 {
-    TestSessionKeyNormalization();
-    TestAccountParsing();
     TestOAuthCredentialParsing();
+    TestOAuthCredentialParsingIgnoresMcpTokens();
+    TestOAuthCredentialParsingRejectsMcpOnlyCredentials();
     TestUsageParsing();
     TestSpendLimitParsing();
     TestEmbeddedOAuthAliases();

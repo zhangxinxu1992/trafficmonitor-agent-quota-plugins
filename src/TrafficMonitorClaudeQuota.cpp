@@ -21,15 +21,6 @@ enum class WindowKind
     Monthly
 };
 
-enum class CredentialAction
-{
-    None,
-    Save,
-    Delete
-};
-
-constexpr int kSessionKeyEdit = 2201;
-constexpr int kClearSessionKeyButton = 2202;
 constexpr int kQuotaRemainingRadio = 2203;
 constexpr int kQuotaUsedRadio = 2204;
 constexpr int kShowResetInfoCheckbox = 2205;
@@ -209,6 +200,112 @@ bool SameDisplayOptions(const claudequota::DisplayOptions& lhs, const claudequot
         && lhs.show_reset_info == rhs.show_reset_info;
 }
 
+std::optional<std::wstring> FindClaudeCodeExecutable()
+{
+    wchar_t path[32768]{};
+    const DWORD length = SearchPathW(nullptr, L"claude.exe", nullptr, static_cast<DWORD>(_countof(path)), path, nullptr);
+    if (length == 0 || length >= _countof(path))
+    {
+        return std::nullopt;
+    }
+    return std::wstring(path, length);
+}
+
+bool RunClaudeCodeLogin(std::wstring& error)
+{
+    const auto executable = FindClaudeCodeExecutable();
+    if (!executable.has_value())
+    {
+        error = L"Claude Code was not found on PATH. Install Claude Code, then run claude auth login.";
+        return false;
+    }
+
+    std::wstring command_line = L"\"" + *executable + L"\" auth login";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(
+            executable->c_str(),
+            command_line.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            CREATE_NEW_CONSOLE,
+            nullptr,
+            nullptr,
+            &startup,
+            &process))
+    {
+        error = L"Failed to start claude auth login: " + WindowsErrorMessage(GetLastError());
+        return false;
+    }
+
+    CloseHandle(process.hThread);
+    const DWORD wait_result = WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 1;
+    const BOOL read_exit_code = GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hProcess);
+    if (wait_result != WAIT_OBJECT_0 || !read_exit_code)
+    {
+        error = L"Failed while waiting for claude auth login: " + WindowsErrorMessage(GetLastError());
+        return false;
+    }
+    if (exit_code != 0)
+    {
+        error = L"claude auth login exited with code " + std::to_wstring(exit_code) + L".";
+        return false;
+    }
+
+    const auto credentials = claudequota::ReadClaudeCodeOAuthCredentials(error);
+    if (!credentials.has_value())
+    {
+        if (error.empty())
+        {
+            error = L"Claude Code login finished, but OAuth credentials were not found.";
+        }
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
+std::optional<claudequota::OAuthCredentials> EnsureClaudeCodeLogin(HWND parent, bool& authenticated_now)
+{
+    authenticated_now = false;
+    std::wstring error;
+    if (const auto credentials = claudequota::ReadClaudeCodeOAuthCredentials(error))
+    {
+        return credentials;
+    }
+
+    const int choice = MessageBoxW(
+        parent,
+        L"Claude Code sign-in is required before opening these settings.\n\n"
+        L"The plugin uses the same protected OAuth credentials as Claude Code.\n\n"
+        L"Start 'claude auth login' now?",
+        L"TrafficMonitor Claude Quota",
+        MB_YESNO | MB_ICONINFORMATION);
+    if (choice != IDYES)
+    {
+        return std::nullopt;
+    }
+
+    if (!RunClaudeCodeLogin(error))
+    {
+        MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
+        return std::nullopt;
+    }
+
+    const auto credentials = claudequota::ReadClaudeCodeOAuthCredentials(error);
+    if (!credentials.has_value())
+    {
+        MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
+        return std::nullopt;
+    }
+    authenticated_now = true;
+    return credentials;
+}
+
 int FallbackSystemDpi()
 {
     HDC dc = GetDC(nullptr);
@@ -310,13 +407,14 @@ struct OptionsDialogState
 {
     claudequota::PluginConfig original_config;
     claudequota::PluginConfig config;
-    CredentialAction credential_action{CredentialAction::None};
-    std::wstring session_key_input;
+    std::wstring auth_status;
     bool accepted{};
     int dpi{96};
     HFONT title_font{};
+    HFONT status_font{};
     HFONT body_font{};
     HWND title_hwnd{};
+    HWND status_hwnd{};
 };
 
 void CaptureDisplayOptions(HWND window, OptionsDialogState& state)
@@ -350,7 +448,7 @@ LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LP
         state->title_hwnd = CreateWindowExW(
             0,
             L"STATIC",
-            L"Claude web authentication",
+            L"Claude quota display",
             WS_CHILD | WS_VISIBLE,
             margin,
             y,
@@ -361,27 +459,35 @@ LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LP
             nullptr,
             nullptr);
         y += ScaleForDpi(31, state->dpi);
-        CreateWindowExW(0, L"STATIC",
-            claudequota::HasStoredSessionKey() ? L"Stored sessionKey: configured" : L"Stored sessionKey: not configured",
-            WS_CHILD | WS_VISIBLE, margin, y, content_width, ScaleForDpi(22, state->dpi), window, nullptr, nullptr, nullptr);
-        y += ScaleForDpi(27, state->dpi);
-        CreateWindowExW(0, L"STATIC", L"Paste the sessionKey value or full Cookie header from claude.ai:", WS_CHILD | WS_VISIBLE,
-            margin, y, content_width, ScaleForDpi(22, state->dpi), window, nullptr, nullptr, nullptr);
-        y += ScaleForDpi(26, state->dpi);
-        const int clear_width = ScaleForDpi(100, state->dpi);
-        const int control_gap = ScaleForDpi(8, state->dpi);
-        const int clear_x = client.right - margin - clear_width;
-        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_PASSWORD,
-            margin, y, clear_x - control_gap - margin, ScaleForDpi(25, state->dpi), window,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSessionKeyEdit)), nullptr, nullptr);
-        CreateWindowExW(0, L"BUTTON", L"Clear saved", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            clear_x, y - ScaleForDpi(1, state->dpi), clear_width, ScaleForDpi(27, state->dpi), window,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearSessionKeyButton)), nullptr, nullptr);
-        y += ScaleForDpi(30, state->dpi);
-        CreateWindowExW(0, L"STATIC", L"Leave this field blank to keep the current credential. Environment variables override it.", WS_CHILD | WS_VISIBLE,
-            margin, y, content_width, ScaleForDpi(36, state->dpi), window, nullptr, nullptr, nullptr);
+        state->status_hwnd = CreateWindowExW(
+            0,
+            L"STATIC",
+            state->auth_status.c_str(),
+            WS_CHILD | WS_VISIBLE,
+            margin,
+            y,
+            content_width,
+            ScaleForDpi(22, state->dpi),
+            window,
+            nullptr,
+            nullptr,
+            nullptr);
+        y += ScaleForDpi(32, state->dpi);
+        CreateWindowExW(
+            0,
+            L"STATIC",
+            L"Authentication is managed by Claude Code. Run 'claude auth login' in a terminal to switch accounts.",
+            WS_CHILD | WS_VISIBLE | SS_LEFT,
+            margin,
+            y,
+            content_width,
+            ScaleForDpi(36, state->dpi),
+            window,
+            nullptr,
+            nullptr,
+            nullptr);
 
-        y += ScaleForDpi(45, state->dpi);
+        y += ScaleForDpi(52, state->dpi);
         CreateWindowExW(0, L"STATIC", L"Quota:", WS_CHILD | WS_VISIBLE,
             margin, y, ScaleForDpi(90, state->dpi), ScaleForDpi(22, state->dpi), window, nullptr, nullptr, nullptr);
         CreateWindowExW(0, L"BUTTON", L"Remaining", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP | BS_AUTORADIOBUTTON,
@@ -421,6 +527,7 @@ LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LP
             return TRUE;
         }, reinterpret_cast<LPARAM>(state->body_font));
         SendMessageW(state->title_hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(state->title_font), TRUE);
+        SendMessageW(state->status_hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(state->status_font), TRUE);
         CheckRadioButton(window, kQuotaRemainingRadio, kQuotaUsedRadio,
             state->config.display.quota_display == claudequota::QuotaDisplayMode::Used ? kQuotaUsedRadio : kQuotaRemainingRadio);
         CheckRadioButton(window, kResetCountdownRadio, kResetTimeRadio,
@@ -429,7 +536,7 @@ LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LP
             state->config.display.show_reset_info ? BST_CHECKED : BST_UNCHECKED, 0);
         EnableWindow(GetDlgItem(window, kResetCountdownRadio), state->config.display.show_reset_info);
         EnableWindow(GetDlgItem(window, kResetTimeRadio), state->config.display.show_reset_info);
-        SetFocus(GetDlgItem(window, kSessionKeyEdit));
+        SetFocus(GetDlgItem(window, kSaveButton));
         return 0;
     }
     case WM_COMMAND:
@@ -439,10 +546,6 @@ LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LP
         }
         switch (LOWORD(w_param))
         {
-        case kClearSessionKeyButton:
-            SetWindowTextW(GetDlgItem(window, kSessionKeyEdit), L"");
-            state->credential_action = CredentialAction::Delete;
-            return 0;
         case kShowResetInfoCheckbox:
         {
             const bool enabled = IsDlgButtonChecked(window, kShowResetInfoCheckbox) == BST_CHECKED;
@@ -453,16 +556,6 @@ LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LP
         case kSaveButton:
         {
             CaptureDisplayOptions(window, *state);
-            const HWND edit = GetDlgItem(window, kSessionKeyEdit);
-            const int length = GetWindowTextLengthW(edit);
-            if (length > 0)
-            {
-                std::wstring value(static_cast<size_t>(length + 1), L'\0');
-                GetWindowTextW(edit, value.data(), length + 1);
-                value.resize(static_cast<size_t>(length));
-                state->session_key_input = value;
-                state->credential_action = CredentialAction::Save;
-            }
             state->accepted = true;
             DestroyWindow(window);
             return 0;
@@ -499,10 +592,11 @@ bool ShowOptionsDialog(HWND parent, OptionsDialogState& state)
 
     state.dpi = DialogDpi(parent);
     state.title_font = CreateDialogFont(13, FW_NORMAL, state.dpi);
+    state.status_font = CreateDialogFont(9, FW_BOLD, state.dpi);
     state.body_font = CreateDialogFont(9, FW_NORMAL, state.dpi);
     const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
     const DWORD ex_style = WS_EX_CONTROLPARENT | WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE;
-    RECT window_rect{0, 0, ScaleForDpi(500, state.dpi), ScaleForDpi(340, state.dpi)};
+    RECT window_rect{0, 0, ScaleForDpi(500, state.dpi), ScaleForDpi(284, state.dpi)};
     AdjustWindowRectForDpi(&window_rect, style, ex_style, state.dpi);
 
     HWND window = CreateWindowExW(
@@ -521,8 +615,10 @@ bool ShowOptionsDialog(HWND parent, OptionsDialogState& state)
     if (window == nullptr)
     {
         DeleteObject(state.title_font);
+        DeleteObject(state.status_font);
         DeleteObject(state.body_font);
         state.title_font = nullptr;
+        state.status_font = nullptr;
         state.body_font = nullptr;
         return false;
     }
@@ -555,8 +651,10 @@ bool ShowOptionsDialog(HWND parent, OptionsDialogState& state)
         SetActiveWindow(parent);
     }
     DeleteObject(state.title_font);
+    DeleteObject(state.status_font);
     DeleteObject(state.body_font);
     state.title_font = nullptr;
+    state.status_font = nullptr;
     state.body_font = nullptr;
     return state.accepted;
 }
@@ -696,6 +794,13 @@ public:
     OptionReturn ShowOptionsDialog(void* hParent) override
     {
         const auto parent = static_cast<HWND>(hParent);
+        bool authenticated_now = false;
+        const auto credentials = EnsureClaudeCodeLogin(parent, authenticated_now);
+        if (!credentials.has_value())
+        {
+            return OR_OPTION_UNCHANGED;
+        }
+
         std::wstring error;
         const auto config = LoadConfig(error);
         if (!config.has_value())
@@ -707,22 +812,17 @@ public:
         OptionsDialogState state;
         state.original_config = *config;
         state.config = *config;
+        state.auth_status = L"Status: signed in with Claude Code.";
         if (!::ShowOptionsDialog(parent, state))
         {
-            return OR_OPTION_UNCHANGED;
-        }
-
-        if (state.credential_action == CredentialAction::Save
-            && !claudequota::WriteStoredSessionKey(state.session_key_input, error))
-        {
-            MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
-            return OR_OPTION_UNCHANGED;
-        }
-        if (state.credential_action == CredentialAction::Delete
-            && !claudequota::DeleteStoredSessionKey(error))
-        {
-            MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
-            return OR_OPTION_UNCHANGED;
+            if (authenticated_now)
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_next_refresh = {};
+                m_has_usage = false;
+                m_last_error.clear();
+            }
+            return authenticated_now ? OR_OPTION_CHANGED : OR_OPTION_UNCHANGED;
         }
 
         const bool config_changed = !SameDisplayOptions(state.config.display, state.original_config.display);
@@ -735,14 +835,14 @@ public:
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_config = state.config;
-            if (state.credential_action != CredentialAction::None)
+            if (authenticated_now)
             {
                 m_next_refresh = {};
                 m_has_usage = false;
                 m_last_error.clear();
             }
         }
-        return config_changed || state.credential_action != CredentialAction::None
+        return config_changed || authenticated_now
             ? OR_OPTION_CHANGED
             : OR_OPTION_UNCHANGED;
     }

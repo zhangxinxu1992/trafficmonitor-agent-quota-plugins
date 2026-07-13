@@ -13,7 +13,7 @@ TrafficMonitor project.
 | Plugin DLL | Shows | Setup |
 | --- | --- | --- |
 | `TrafficMonitorCodexQuota.dll` | `CX 5h:`, `CX 7d:`, and company-account `CX 1mo:` Codex quota windows | Sign in with the Codex CLI first. |
-| `TrafficMonitorClaudeQuota.dll` | `CL 5h:`, `CL 7d:`, and Enterprise `CL 1mo:` Claude quota windows | Paste a claude.ai `sessionKey` in the plugin options, or sign in with Claude Code. |
+| `TrafficMonitorClaudeQuota.dll` | `CL 5h:`, `CL 7d:`, and Enterprise `CL 1mo:` Claude quota windows | Open the plugin options; if needed, the plugin starts `claude auth login` before showing settings. |
 | `TrafficMonitorGitHubCopilotQuota.dll` | `GC:` GitHub Copilot quota | Open the plugin options and choose `Sign in with GitHub`. |
 
 The default display uses remaining quota and a compact reset countdown. Plugin
@@ -90,18 +90,18 @@ window, which is shown by `CodexQuotaMonth` as `CX 1mo:`.
 When `HTTPS_PROXY` or `HTTP_PROXY` is set, the plugin uses that proxy for the
 quota request; otherwise it uses the Windows system proxy configuration.
 
-For Claude quota, the web session path matches the usage numbers shown at
-`https://claude.ai/settings/usage`, including Enterprise monthly spend limits.
-Open the Claude plugin options and paste either the `sessionKey` cookie value or
-the full `Cookie` request header copied from the browser developer tools. The
-plugin extracts only `sessionKey` and stores it in Windows Credential Manager as
-a TrafficMonitor-scoped local credential. Chrome and Edge App-Bound Encryption
-prevents reliable third-party automatic cookie import, so the plugin does not
-read browser cookie databases. As an alternative, run `claude login`; when no
-web session is configured, the plugin reads `~/.claude/.credentials.json` and
-uses Claude Code's OAuth usage endpoint. `CLAUDE_AI_SESSION_KEY` and
-`CLAUDE_WEB_SESSION_KEY` are also supported and take precedence over the stored
-credential.
+For Claude quota, install Claude Code and authenticate with `claude auth login`.
+The plugin reads the `claudeAiOauth` credentials from
+`~/.claude/.credentials.json` and calls Claude Code's OAuth usage endpoint,
+including its Enterprise `extra_usage` monthly spend-limit fields. When the
+plugin options are opened without a valid Claude Code login, the plugin offers
+to start `claude auth login` in a new console and opens the display settings only
+after authentication succeeds.
+
+A claude.ai web `sessionKey` provider may be added later as a supplementary data
+source if the OAuth usage endpoint stops exposing a required field. It is not
+supported by the current plugin because Claude Code login already supplies the
+5-hour, 7-day, and Enterprise monthly quota data without copying browser cookies.
 
 For GitHub Copilot quota, open the TrafficMonitor plugin options dialog and use
 `Sign in with GitHub`. The plugin stores the OAuth token in Windows Credential

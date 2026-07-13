@@ -63,29 +63,27 @@ The first version intentionally ignores `additional_rate_limits`, including Spar
 
 ## Claude Data Source
 
-The Claude plugin follows the Win-CodexBar web provider first because this
-matches the values shown at `https://claude.ai/settings/usage`:
+The Claude plugin uses Claude Code OAuth as its only authentication and data
+source:
 
-1. Read `CLAUDE_AI_SESSION_KEY` or `CLAUDE_WEB_SESSION_KEY` when configured.
-2. Otherwise read the protected Windows Credential Manager entry
-   `TrafficMonitorClaudeQuota:ClaudeWebSession` written by the plugin options.
-3. Send authenticated requests to `https://claude.ai/api/account`, then the
-   selected organization's `/usage` and `/overage_spend_limit` endpoints.
+1. Read `%USERPROFILE%\.claude\.credentials.json`.
+2. Parse `accessToken` and `rateLimitTier` only from the `claudeAiOauth` object;
+   unrelated `mcpOAuth` tokens must never be selected.
+3. Send `GET https://api.anthropic.com/api/oauth/usage` with the
+   `anthropic-beta: oauth-2025-04-20` header.
 4. Parse `five_hour` and `seven_day` utilization/reset windows.
-5. Derive the monthly used percentage from `used_credits /
-   monthly_credit_limit`. When the response has no explicit reset timestamp,
-   use the next UTC calendar-month boundary; this displays as 08:00 in GMT+8.
+5. Parse the embedded `extra_usage` monthly limit and used credits. When the
+   response has no explicit reset timestamp, use the next UTC calendar-month
+   boundary; this displays as 08:00 in GMT+8.
 
-The options accept either the raw `sessionKey` value or a complete browser
-`Cookie` header, retain only `sessionKey`, and never write it to the JSON config.
-Automatic Chrome/Edge cookie import is intentionally excluded because modern
-App-Bound Encryption makes it unreliable for third-party applications.
+Opening the plugin options requires a valid Claude Code login. If credentials
+are missing, the plugin offers to run `claude auth login` in a new console and
+opens display settings only after the command succeeds and credentials can be
+read.
 
-When no web session is configured, the plugin falls back to Claude Code OAuth:
-it reads `%USERPROFILE%\.claude\.credentials.json`, uses `accessToken`, and
-sends `GET https://api.anthropic.com/api/oauth/usage` with the
-`anthropic-beta: oauth-2025-04-20` header. This path parses the same 5-hour,
-7-day, and embedded `extra_usage` monthly fields when available.
+A claude.ai web `sessionKey` provider is reserved as a possible future
+supplement if OAuth no longer exposes required quota fields. It is intentionally
+not implemented in the current version.
 
 ## Configuration
 
@@ -102,8 +100,8 @@ Optional Codex display configuration lives at `%APPDATA%\TrafficMonitorCodexQuot
 `quota_display` accepts `remaining` or `used`. `show_reset_info` accepts `true` or `false`. `reset_display` accepts `countdown` or `time` and only affects the taskbar value when `show_reset_info` is `true`. Missing config uses the defaults above.
 
 Claude uses the same display-only schema at
-`%APPDATA%\TrafficMonitorClaudeQuota\config.json`. Authentication remains in
-Windows Credential Manager or Claude Code's own credentials file.
+`%APPDATA%\TrafficMonitorClaudeQuota\config.json`. Authentication remains only
+in Claude Code's own credentials file.
 
 ## Runtime Behavior
 
