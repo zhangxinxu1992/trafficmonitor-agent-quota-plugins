@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.7
+
+### 修复
+
+- 修复 ChatGPT 临时取消 5 小时额度限制时，唯一的 7 天窗口被错误显示为 `CX 5h:`、而 `CX 7d:` 显示 `N/A` 的问题。
+- Codex 5 小时和 7 天窗口现在根据 `limit_window_seconds` 归类；周期字段缺失时仍兼容原有的 primary/secondary 位置映射。
+- 月度工作区额度继续通过 `spend_control.individual_limit` 识别，不依赖不存在的固定月度周期秒数。
+
+### 验证
+
+- 新增仅有 7 天 primary 窗口、窗口位置互换和周期字段缺失的回归测试，加强实时测试对窗口周期的断言，并让实时插件冒烟等待范围覆盖 WinHTTP 网络超时。
+
+**完整变更记录**：https://github.com/zhangxinxu1992/trafficmonitor-agent-quota-plugins/compare/v1.6...v1.7
+
 ## v1.6
 
 ### 新增

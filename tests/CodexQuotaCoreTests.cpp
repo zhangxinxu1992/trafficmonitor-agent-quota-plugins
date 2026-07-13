@@ -118,6 +118,109 @@ void TestParsesUsageWindows()
     Check(error.empty(), "successful usage parse should not set error");
 }
 
+void TestClassifiesPrimaryOnlyWeeklyWindowByDuration()
+{
+    std::wstring error;
+    const auto usage = codexquota::ParseUsageJson(
+        R"({
+            "plan_type": "pro",
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 12,
+                    "limit_window_seconds": 604800,
+                    "reset_at": 1784504645
+                },
+                "secondary_window": null
+            }
+        })",
+        error);
+
+    Check(usage.has_value(), "primary-only weekly usage JSON should parse");
+    Check(!usage->primary.present, "a seven-day primary_window should not be exposed as the 5h window");
+    Check(usage->secondary.present, "a seven-day primary_window should be exposed as the weekly window");
+    Check(usage->secondary.used_percent == 12.0, "reclassified weekly used percent should be preserved");
+    Check(usage->secondary.limit_window_seconds == 604800, "reclassified weekly duration should be preserved");
+    Check(usage->secondary.reset_at == 1784504645, "reclassified weekly reset_at should be preserved");
+    Check(error.empty(), "successful weekly reclassification should not set error");
+}
+
+void TestClassifiesSwappedRateWindowsByDuration()
+{
+    std::wstring error;
+    const auto usage = codexquota::ParseUsageJson(
+        R"({
+            "plan_type": "pro",
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 20,
+                    "limit_window_seconds": 604800,
+                    "reset_at": 1784504645
+                },
+                "secondary_window": {
+                    "used_percent": 30,
+                    "limit_window_seconds": 18000,
+                    "reset_at": 1784000000
+                }
+            }
+        })",
+        error);
+
+    Check(usage.has_value(), "swapped rate-window usage JSON should parse");
+    Check(usage->primary.present, "the five-hour duration should populate the 5h window regardless of source field");
+    Check(usage->primary.used_percent == 30.0, "reclassified 5h used percent should be preserved");
+    Check(usage->primary.limit_window_seconds == 18000, "reclassified 5h duration should be preserved");
+    Check(usage->secondary.present, "the seven-day duration should populate the weekly window regardless of source field");
+    Check(usage->secondary.used_percent == 20.0, "reclassified weekly used percent should be preserved after swapping");
+    Check(usage->secondary.limit_window_seconds == 604800, "reclassified weekly duration should be preserved after swapping");
+    Check(error.empty(), "successful swapped-window reclassification should not set error");
+}
+
+void TestFallsBackToRateWindowFieldNamesWhenDurationIsMissing()
+{
+    std::wstring error;
+    const auto usage = codexquota::ParseUsageJson(
+        R"({
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 40,
+                    "reset_at": 1784000000
+                },
+                "secondary_window": {
+                    "used_percent": 50,
+                    "reset_at": 1784504645
+                }
+            }
+        })",
+        error);
+
+    Check(usage.has_value(), "rate windows without durations should retain positional compatibility");
+    Check(usage->primary.present, "duration-less primary_window should fall back to the 5h slot");
+    Check(usage->primary.used_percent == 40.0, "duration-less primary used percent should be preserved");
+    Check(usage->secondary.present, "duration-less secondary_window should fall back to the weekly slot");
+    Check(usage->secondary.used_percent == 50.0, "duration-less secondary used percent should be preserved");
+    Check(error.empty(), "successful positional fallback should not set error");
+}
+
+void TestDoesNotMislabelUnknownPositiveRateWindowDuration()
+{
+    std::wstring error;
+    const auto usage = codexquota::ParseUsageJson(
+        R"({
+            "rate_limit": {
+                "primary_window": {
+                    "used_percent": 60,
+                    "limit_window_seconds": 86400,
+                    "reset_at": 1784000000
+                }
+            }
+        })",
+        error);
+
+    Check(!usage.has_value(), "an unsupported positive duration should not be mislabeled as 5h or weekly");
+    Check(error.find(L"supported quota window") != std::wstring::npos,
+        "an unsupported positive duration should report that no supported window was found");
+}
+
 void TestParsesBusinessMonthlySpendControl()
 {
     std::wstring error;
@@ -320,8 +423,18 @@ void TestLiveFetchWhenRequested()
         std::wcerr << L"LIVE ERROR: " << result.error << L" status=" << result.http_status << L'\n';
     }
     Check(result.success, "live Codex usage fetch should succeed when requested");
-    Check(result.usage.primary.present || result.usage.monthly.present,
-        "live Codex usage should include a primary or monthly window");
+    Check(result.usage.primary.present || result.usage.secondary.present || result.usage.monthly.present,
+        "live Codex usage should include a supported rate or monthly window");
+    if (result.usage.primary.present && result.usage.primary.limit_window_seconds > 0)
+    {
+        Check(result.usage.primary.limit_window_seconds == 18000,
+            "live Codex 5h slot should contain a five-hour window");
+    }
+    if (result.usage.secondary.present && result.usage.secondary.limit_window_seconds > 0)
+    {
+        Check(result.usage.secondary.limit_window_seconds == 604800,
+            "live Codex weekly slot should contain a seven-day window");
+    }
     if (result.usage.plan_type == L"business" || result.usage.plan_type == L"enterprise")
     {
         Check(result.usage.monthly.present, "live company Codex usage should include monthly spend control");
@@ -336,6 +449,10 @@ int main()
     TestRejectsMissingCredentials();
     TestNormalizesEnvironmentProxy();
     TestParsesUsageWindows();
+    TestClassifiesPrimaryOnlyWeeklyWindowByDuration();
+    TestClassifiesSwappedRateWindowsByDuration();
+    TestFallsBackToRateWindowFieldNamesWhenDurationIsMissing();
+    TestDoesNotMislabelUnknownPositiveRateWindowDuration();
     TestParsesBusinessMonthlySpendControl();
     TestDerivesBusinessMonthlyPercent();
     TestFormatsUsedPercent();

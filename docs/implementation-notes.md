@@ -41,6 +41,12 @@ Fields used:
 - `spend_control.individual_limit.used`
 - `spend_control.individual_limit.reset_at`
 
+5 小时和 7 天窗口按 `limit_window_seconds` 归一化：`18000` 秒进入 5 小时槽位，
+`604800` 秒进入 7 天槽位。不能把 JSON 字段位置当作稳定的窗口类型；服务端可能在
+5 小时限制暂时不可用时，把唯一的 7 天窗口放到 `primary_window`，同时返回
+`secondary_window: null`。只有在周期字段缺失时才使用原来的位置映射作为兼容回退。
+月度工作区额度仍通过 `spend_control.individual_limit` 识别，不依赖固定月长。
+
 Codex Business and Enterprise workspaces may return `rate_limit: null`. Their
 monthly allocation is returned as `spend_control.individual_limit`, with
 `source: workspace_spend_controls`. The response includes total, used, and
