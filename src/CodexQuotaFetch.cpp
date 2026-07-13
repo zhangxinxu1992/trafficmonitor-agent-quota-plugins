@@ -281,7 +281,7 @@ FetchResult FetchUsageSnapshot()
     const auto user_agent = L"TrafficMonitorCodexQuota/" + std::wstring(kTrafficMonitorQuotaPluginVersion);
     const auto environment_proxy = GetEnvironmentProxy();
     const auto access_type = environment_proxy.empty()
-        ? WINHTTP_ACCESS_TYPE_DEFAULT_PROXY
+        ? WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY
         : WINHTTP_ACCESS_TYPE_NAMED_PROXY;
     HttpHandle session(WinHttpOpen(
         user_agent.c_str(),
