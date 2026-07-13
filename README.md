@@ -2,10 +2,10 @@
 
 English | [简体中文](README.zh-CN.md)
 
-TrafficMonitor x64 plugins for showing Codex and GitHub Copilot quota in the
+TrafficMonitor x64 plugins for showing Codex, Claude, and GitHub Copilot quota in the
 TrafficMonitor taskbar window.
 
-This is an unofficial project. It is not affiliated with OpenAI, GitHub, or the
+This is an unofficial project. It is not affiliated with OpenAI, Anthropic, GitHub, or the
 TrafficMonitor project.
 
 ## Plugins
@@ -13,6 +13,7 @@ TrafficMonitor project.
 | Plugin DLL | Shows | Setup |
 | --- | --- | --- |
 | `TrafficMonitorCodexQuota.dll` | `CX 5h:`, `CX 7d:`, and company-account `CX 1mo:` Codex quota windows | Sign in with the Codex CLI first. |
+| `TrafficMonitorClaudeQuota.dll` | `CL 5h:`, `CL 7d:`, and Enterprise `CL 1mo:` Claude quota windows | Paste a claude.ai `sessionKey` in the plugin options, or sign in with Claude Code. |
 | `TrafficMonitorGitHubCopilotQuota.dll` | `GC:` GitHub Copilot quota | Open the plugin options and choose `Sign in with GitHub`. |
 
 The default display uses remaining quota and a compact reset countdown. Plugin
@@ -28,6 +29,7 @@ Example taskbar text:
 CX 5h: 69% 42m
 CX 7d: 89% 6d 1h
 CX 1mo: 97% 2w 4d
+CL 1mo: 92% 2w 4d
 GC: 82% 1.2kcr 12d
 ```
 
@@ -46,6 +48,7 @@ Download the latest release from
    |-- TrafficMonitor.exe
    `-- plugins
        |-- TrafficMonitorCodexQuota.dll
+       |-- TrafficMonitorClaudeQuota.dll
        `-- TrafficMonitorGitHubCopilotQuota.dll
    ```
 
@@ -70,9 +73,12 @@ After restarting TrafficMonitor:
    - `CodexQuota5h`
    - `CodexQuotaWeek`
    - `CodexQuotaMonth`
+   - `ClaudeQuota5h`
+   - `ClaudeQuotaWeek`
+   - `ClaudeQuotaMonth`
    - `GitHubCopilotQuotaAI`
 
-You can install either DLL or both DLLs.
+You can install any combination of the DLLs.
 
 ## Configure
 
@@ -83,6 +89,19 @@ Business and Enterprise workspaces can instead provide a monthly spend-control
 window, which is shown by `CodexQuotaMonth` as `CX 1mo:`.
 When `HTTPS_PROXY` or `HTTP_PROXY` is set, the plugin uses that proxy for the
 quota request; otherwise it uses the Windows system proxy configuration.
+
+For Claude quota, the web session path matches the usage numbers shown at
+`https://claude.ai/settings/usage`, including Enterprise monthly spend limits.
+Open the Claude plugin options and paste either the `sessionKey` cookie value or
+the full `Cookie` request header copied from the browser developer tools. The
+plugin extracts only `sessionKey` and stores it in Windows Credential Manager as
+a TrafficMonitor-scoped local credential. Chrome and Edge App-Bound Encryption
+prevents reliable third-party automatic cookie import, so the plugin does not
+read browser cookie databases. As an alternative, run `claude login`; when no
+web session is configured, the plugin reads `~/.claude/.credentials.json` and
+uses Claude Code's OAuth usage endpoint. `CLAUDE_AI_SESSION_KEY` and
+`CLAUDE_WEB_SESSION_KEY` are also supported and take precedence over the stored
+credential.
 
 For GitHub Copilot quota, open the TrafficMonitor plugin options dialog and use
 `Sign in with GitHub`. The plugin stores the OAuth token in Windows Credential
@@ -98,6 +117,7 @@ Each release ZIP contains:
 
 ```text
 TrafficMonitorCodexQuota.dll
+TrafficMonitorClaudeQuota.dll
 TrafficMonitorGitHubCopilotQuota.dll
 README.md
 README.zh-CN.md
@@ -114,7 +134,7 @@ Build, test, release, and implementation details are kept out of this README:
 
 - [Development guide](docs/development.md)
 - [Implementation notes](docs/implementation-notes.md)
-- [Codex plugin design](docs/design.md)
+- [Codex and Claude plugin design](docs/design.md)
 
 ## License
 

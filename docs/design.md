@@ -1,4 +1,4 @@
-# TrafficMonitor Codex Quota Plugin Design
+# TrafficMonitor Codex and Claude Quota Plugin Design
 
 ## Goal
 
@@ -9,6 +9,10 @@ The plugin exposes three display items:
 - `CX 5h:`: percentage of the Codex 5-hour primary rate window plus reset information.
 - `CX 7d:`: percentage of the Codex 7-day secondary rate window plus reset information.
 - `CX 1mo:`: percentage of the monthly workspace spend-control window returned for company accounts plus reset information.
+
+The separate Claude plugin mirrors the same three-window shape with `CL 5h:`,
+`CL 7d:`, and `CL 1mo:`. Enterprise accounts that expose only a monthly spend
+limit show `N/A` for the unavailable 5-hour and 7-day items.
 
 Values use compact text, for example `CX 5h: 76% 42m` or `CX 7d: 90% 6d 1h`. By default the percentage is remaining quota and the suffix is the countdown until that quota window resets. The user can switch the percentage to used quota, hide reset information, or show visible reset information as local reset time. The taskbar value text starts with a regular space so spacing remains visible after TrafficMonitor trims plugin-label edges. `GetItemValueSampleText()` follows the current display mode: countdown mode uses compact samples such as ` 100% 4h 59m` or ` 100% 6d 23h`, reset-time mode reserves enough width for values such as ` 100% 12-31 23:59`, and hidden reset mode reserves only ` 100%`.
 
@@ -49,6 +53,32 @@ the percentage from `used / limit`.
 
 The first version intentionally ignores `additional_rate_limits`, including Spark-specific quota windows.
 
+## Claude Data Source
+
+The Claude plugin follows the Win-CodexBar web provider first because this
+matches the values shown at `https://claude.ai/settings/usage`:
+
+1. Read `CLAUDE_AI_SESSION_KEY` or `CLAUDE_WEB_SESSION_KEY` when configured.
+2. Otherwise read the protected Windows Credential Manager entry
+   `TrafficMonitorClaudeQuota:ClaudeWebSession` written by the plugin options.
+3. Send authenticated requests to `https://claude.ai/api/account`, then the
+   selected organization's `/usage` and `/overage_spend_limit` endpoints.
+4. Parse `five_hour` and `seven_day` utilization/reset windows.
+5. Derive the monthly used percentage from `used_credits /
+   monthly_credit_limit`. When the response has no explicit reset timestamp,
+   use the next UTC calendar-month boundary; this displays as 08:00 in GMT+8.
+
+The options accept either the raw `sessionKey` value or a complete browser
+`Cookie` header, retain only `sessionKey`, and never write it to the JSON config.
+Automatic Chrome/Edge cookie import is intentionally excluded because modern
+App-Bound Encryption makes it unreliable for third-party applications.
+
+When no web session is configured, the plugin falls back to Claude Code OAuth:
+it reads `%USERPROFILE%\.claude\.credentials.json`, uses `accessToken`, and
+sends `GET https://api.anthropic.com/api/oauth/usage` with the
+`anthropic-beta: oauth-2025-04-20` header. This path parses the same 5-hour,
+7-day, and embedded `extra_usage` monthly fields when available.
+
 ## Configuration
 
 Optional Codex display configuration lives at `%APPDATA%\TrafficMonitorCodexQuota\config.json`:
@@ -62,6 +92,10 @@ Optional Codex display configuration lives at `%APPDATA%\TrafficMonitorCodexQuot
 ```
 
 `quota_display` accepts `remaining` or `used`. `show_reset_info` accepts `true` or `false`. `reset_display` accepts `countdown` or `time` and only affects the taskbar value when `show_reset_info` is `true`. Missing config uses the defaults above.
+
+Claude uses the same display-only schema at
+`%APPDATA%\TrafficMonitorClaudeQuota\config.json`. Authentication remains in
+Windows Credential Manager or Claude Code's own credentials file.
 
 ## Runtime Behavior
 
@@ -87,9 +121,14 @@ The tooltip includes the plan, all three windows, reset information, last refres
 
 ## Implementation Shape
 
-The project uses a small shared C++17 core plus two binaries:
+The Codex implementation uses a small shared C++17 core plus two binaries:
 
 - `TrafficMonitorCodexQuota.dll`: the TrafficMonitor plugin.
 - `CodexQuotaTests.exe`: console tests for credential parsing, usage JSON parsing, percent formatting, and reset countdown formatting.
 
 The plugin uses WinHTTP for HTTPS and has no third-party runtime dependency.
+
+Claude follows the same shape with `TrafficMonitorClaudeQuota.dll`,
+`ClaudeQuotaTests.exe`, and `ClaudePluginSmokeTests.exe`. It reuses the common
+display formatting and config schema while keeping Claude response parsing,
+credential storage, and fetch behavior in dedicated source files.

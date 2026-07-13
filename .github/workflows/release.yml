@@ -40,6 +40,9 @@ jobs:
           msbuild .\TrafficMonitorCodexQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+          msbuild .\TrafficMonitorClaudeQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           msbuild .\TrafficMonitorGitHubCopilotQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -50,6 +53,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           msbuild .\PluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          msbuild .\ClaudeQuotaTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          msbuild .\ClaudePluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           msbuild .\GitHubCopilotQuotaTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
@@ -67,6 +76,12 @@ jobs:
           .\build\x64\Release\PluginSmokeTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+          .\build\x64\Release\ClaudeQuotaTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          .\build\x64\Release\ClaudePluginSmokeTests.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           .\build\x64\Release\GitHubCopilotQuotaTests.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -82,6 +97,7 @@ jobs:
 
           New-Item -ItemType Directory -Force $packageDir | Out-Null
           Copy-Item .\build\x64\Release\TrafficMonitorCodexQuota.dll $packageDir
+          Copy-Item .\build\x64\Release\TrafficMonitorClaudeQuota.dll $packageDir
           Copy-Item .\build\x64\Release\TrafficMonitorGitHubCopilotQuota.dll $packageDir
           Copy-Item .\README.md $packageDir
           Copy-Item .\README.zh-CN.md $packageDir

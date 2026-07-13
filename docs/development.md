@@ -5,7 +5,7 @@ README.
 
 ## Versioning
 
-Both plugin DLLs share one release version in `src/PluginVersion.h`, backed by
+All plugin DLLs share one release version in `src/PluginVersion.h`, backed by
 the macros in `src/PluginVersionResource.h`. Bump that version once for each
 tagged repository release, then tag the release as `v<version>`, for example
 `v1.1`.
@@ -19,6 +19,9 @@ $msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Curren
 & $msbuild .\TrafficMonitorCodexQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 & $msbuild .\CodexQuotaTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 & $msbuild .\PluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+& $msbuild .\TrafficMonitorClaudeQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+& $msbuild .\ClaudeQuotaTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+& $msbuild .\ClaudePluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 & $msbuild .\TrafficMonitorGitHubCopilotQuota.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 & $msbuild .\GitHubCopilotQuotaTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 & $msbuild .\GitHubCopilotPluginSmokeTests.vcxproj /p:Configuration=Release /p:Platform=x64 /m
@@ -29,6 +32,8 @@ $msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Curren
 ```powershell
 .\build\x64\Release\CodexQuotaTests.exe
 .\build\x64\Release\PluginSmokeTests.exe
+.\build\x64\Release\ClaudeQuotaTests.exe
+.\build\x64\Release\ClaudePluginSmokeTests.exe
 .\build\x64\Release\GitHubCopilotQuotaTests.exe
 .\build\x64\Release\GitHubCopilotPluginSmokeTests.exe
 ```
@@ -39,6 +44,10 @@ Live tests are optional and depend on the local authenticated accounts:
 $env:TRAFFICMONITOR_CODEX_QUOTA_RUN_LIVE_TEST = '1'
 .\build\x64\Release\CodexQuotaTests.exe
 .\build\x64\Release\PluginSmokeTests.exe
+
+$env:TRAFFICMONITOR_CLAUDE_QUOTA_RUN_LIVE_TEST = '1'
+.\build\x64\Release\ClaudeQuotaTests.exe
+.\build\x64\Release\ClaudePluginSmokeTests.exe
 
 $env:TRAFFICMONITOR_GITHUB_COPILOT_QUOTA_RUN_LIVE_TEST = '1'
 .\build\x64\Release\GitHubCopilotQuotaTests.exe
@@ -52,6 +61,7 @@ TrafficMonitor before copying new DLLs into the plugin directory.
 ```powershell
 New-Item -ItemType Directory -Force 'C:\Apps\TrafficMonitor\plugins' | Out-Null
 Copy-Item -Force '.\build\x64\Release\TrafficMonitorCodexQuota.dll' 'C:\Apps\TrafficMonitor\plugins\TrafficMonitorCodexQuota.dll'
+Copy-Item -Force '.\build\x64\Release\TrafficMonitorClaudeQuota.dll' 'C:\Apps\TrafficMonitor\plugins\TrafficMonitorClaudeQuota.dll'
 Copy-Item -Force '.\build\x64\Release\TrafficMonitorGitHubCopilotQuota.dll' 'C:\Apps\TrafficMonitor\plugins\TrafficMonitorGitHubCopilotQuota.dll'
 ```
 
@@ -60,12 +70,12 @@ Restart TrafficMonitor after copying the DLLs. If labels change, remember that
 
 ## Release Package
 
-The GitHub Actions release workflow builds both plugin DLLs, runs the non-live
+The GitHub Actions release workflow builds all plugin DLLs, runs the non-live
 tests, and uploads one ZIP:
 
 ```text
 trafficmonitor-agent-quota-plugins-v<version>.zip
 ```
 
-The ZIP contains both plugin DLLs plus English and Chinese READMEs, license, and
+The ZIP contains all plugin DLLs plus English and Chinese READMEs, license, and
 third-party notice files.

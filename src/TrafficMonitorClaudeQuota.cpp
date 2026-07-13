@@ -1,0 +1,785 @@
+#include "PluginInterface.h"
+#include "ClaudeQuotaCore.h"
+#include "ClaudeQuotaFetch.h"
+#include "PluginVersion.h"
+
+#include <Windows.h>
+
+#include <chrono>
+#include <ctime>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+
+namespace
+{
+enum class WindowKind
+{
+    FiveHour,
+    Weekly,
+    Monthly
+};
+
+enum class CredentialAction
+{
+    None,
+    Save,
+    Delete
+};
+
+constexpr int kSessionKeyEdit = 2201;
+constexpr int kClearSessionKeyButton = 2202;
+constexpr int kQuotaRemainingRadio = 2203;
+constexpr int kQuotaUsedRadio = 2204;
+constexpr int kShowResetInfoCheckbox = 2205;
+constexpr int kResetCountdownRadio = 2206;
+constexpr int kResetTimeRadio = 2207;
+constexpr int kSaveButton = 2208;
+constexpr const wchar_t* kOptionsDialogClassName = L"TrafficMonitorClaudeQuotaOptions";
+
+std::wstring WindowsErrorMessage(DWORD error_code)
+{
+    wchar_t* buffer = nullptr;
+    const DWORD length = FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        nullptr,
+        error_code,
+        0,
+        reinterpret_cast<LPWSTR>(&buffer),
+        0,
+        nullptr);
+    if (length == 0 || buffer == nullptr)
+    {
+        return L"Windows error " + std::to_wstring(error_code);
+    }
+    std::wstring message(buffer, length);
+    LocalFree(buffer);
+    while (!message.empty() && (message.back() == L'\r' || message.back() == L'\n' || message.back() == L'.'))
+    {
+        message.pop_back();
+    }
+    return message;
+}
+
+std::wstring GetEnvVar(const wchar_t* name)
+{
+    const DWORD length = GetEnvironmentVariableW(name, nullptr, 0);
+    if (length == 0)
+    {
+        return {};
+    }
+    std::wstring value(length, L'\0');
+    const DWORD written = GetEnvironmentVariableW(name, value.data(), length);
+    value.resize(written);
+    return value;
+}
+
+std::wstring JoinPath(std::wstring base, const wchar_t* child)
+{
+    if (!base.empty() && base.back() != L'\\' && base.back() != L'/')
+    {
+        base.push_back(L'\\');
+    }
+    base += child;
+    return base;
+}
+
+std::wstring GetDefaultConfigPath()
+{
+    const auto appdata = GetEnvVar(L"APPDATA");
+    if (!appdata.empty())
+    {
+        return JoinPath(JoinPath(appdata, L"TrafficMonitorClaudeQuota"), L"config.json");
+    }
+    return L"TrafficMonitorClaudeQuota\\config.json";
+}
+
+bool ReadFileUtf8AsWide(const std::wstring& path, std::wstring& content, std::wstring& error)
+{
+    const HANDLE file = CreateFileW(
+        path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        const auto code = GetLastError();
+        if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)
+        {
+            content.clear();
+            return true;
+        }
+        error = L"Failed to open TrafficMonitor Claude quota config: " + WindowsErrorMessage(code);
+        return false;
+    }
+
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart < 0 || size.QuadPart > 1024 * 1024)
+    {
+        CloseHandle(file);
+        error = L"Invalid TrafficMonitor Claude quota config size.";
+        return false;
+    }
+    std::string bytes(static_cast<size_t>(size.QuadPart), '\0');
+    DWORD bytes_read = 0;
+    const BOOL read = bytes.empty() || ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &bytes_read, nullptr);
+    CloseHandle(file);
+    if (!read)
+    {
+        error = L"Failed to read TrafficMonitor Claude quota config: " + WindowsErrorMessage(GetLastError());
+        return false;
+    }
+    bytes.resize(bytes_read);
+    if (bytes.empty())
+    {
+        content.clear();
+        return true;
+    }
+
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+    if (length <= 0)
+    {
+        error = L"Failed to decode TrafficMonitor Claude quota config as UTF-8.";
+        return false;
+    }
+    content.assign(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()), content.data(), length);
+    return true;
+}
+
+bool WriteFileWideAsUtf8(const std::wstring& path, const std::wstring& content, std::wstring& error)
+{
+    const auto slash = path.find_last_of(L"\\/");
+    if (slash != std::wstring::npos)
+    {
+        const auto directory = path.substr(0, slash);
+        if (!CreateDirectoryW(directory.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+        {
+            error = L"Failed to create TrafficMonitor Claude quota config directory: " + WindowsErrorMessage(GetLastError());
+            return false;
+        }
+    }
+
+    const int length = WideCharToMultiByte(CP_UTF8, 0, content.data(), static_cast<int>(content.size()), nullptr, 0, nullptr, nullptr);
+    std::string bytes(static_cast<size_t>(length), '\0');
+    if (length > 0)
+    {
+        WideCharToMultiByte(CP_UTF8, 0, content.data(), static_cast<int>(content.size()), bytes.data(), length, nullptr, nullptr);
+    }
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        error = L"Failed to open TrafficMonitor Claude quota config for writing: " + WindowsErrorMessage(GetLastError());
+        return false;
+    }
+    DWORD written = 0;
+    const BOOL saved = bytes.empty() || WriteFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr);
+    CloseHandle(file);
+    if (!saved || written != bytes.size())
+    {
+        error = L"Failed to write TrafficMonitor Claude quota config: " + WindowsErrorMessage(GetLastError());
+        return false;
+    }
+    return true;
+}
+
+std::optional<claudequota::PluginConfig> LoadConfig(std::wstring& error)
+{
+    std::wstring json;
+    if (!ReadFileUtf8AsWide(GetDefaultConfigPath(), json, error))
+    {
+        return std::nullopt;
+    }
+    return claudequota::ParseConfigJson(json, error);
+}
+
+bool SaveConfig(const claudequota::PluginConfig& config, std::wstring& error)
+{
+    return WriteFileWideAsUtf8(GetDefaultConfigPath(), claudequota::SerializeConfigJson(config), error);
+}
+
+bool SameDisplayOptions(const claudequota::DisplayOptions& lhs, const claudequota::DisplayOptions& rhs)
+{
+    return lhs.quota_display == rhs.quota_display
+        && lhs.reset_display == rhs.reset_display
+        && lhs.show_reset_info == rhs.show_reset_info;
+}
+
+void CenterWindow(HWND window, HWND parent)
+{
+    RECT window_rect{};
+    GetWindowRect(window, &window_rect);
+    RECT area{};
+    if (parent != nullptr && IsWindow(parent))
+    {
+        GetWindowRect(parent, &area);
+    }
+    else
+    {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &area, 0);
+    }
+    const int width = window_rect.right - window_rect.left;
+    const int height = window_rect.bottom - window_rect.top;
+    SetWindowPos(
+        window,
+        nullptr,
+        area.left + (area.right - area.left - width) / 2,
+        area.top + (area.bottom - area.top - height) / 2,
+        0,
+        0,
+        SWP_NOZORDER | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+struct OptionsDialogState
+{
+    claudequota::PluginConfig original_config;
+    claudequota::PluginConfig config;
+    CredentialAction credential_action{CredentialAction::None};
+    std::wstring session_key_input;
+    bool accepted{};
+};
+
+void CaptureDisplayOptions(HWND window, OptionsDialogState& state)
+{
+    state.config.display.quota_display = IsDlgButtonChecked(window, kQuotaUsedRadio) == BST_CHECKED
+        ? claudequota::QuotaDisplayMode::Used
+        : claudequota::QuotaDisplayMode::Remaining;
+    state.config.display.show_reset_info = IsDlgButtonChecked(window, kShowResetInfoCheckbox) == BST_CHECKED;
+    state.config.display.reset_display = IsDlgButtonChecked(window, kResetTimeRadio) == BST_CHECKED
+        ? claudequota::ResetDisplayMode::Time
+        : claudequota::ResetDisplayMode::Countdown;
+}
+
+LRESULT CALLBACK OptionsDialogProc(HWND window, UINT message, WPARAM w_param, LPARAM l_param)
+{
+    auto* state = reinterpret_cast<OptionsDialogState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    switch (message)
+    {
+    case WM_CREATE:
+    {
+        const auto* create = reinterpret_cast<CREATESTRUCTW*>(l_param);
+        state = static_cast<OptionsDialogState*>(create->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+        auto* font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+
+        CreateWindowExW(0, L"STATIC", L"Claude web authentication", WS_CHILD | WS_VISIBLE, 18, 16, 420, 22, window, nullptr, nullptr, nullptr);
+        CreateWindowExW(0, L"STATIC",
+            claudequota::HasStoredSessionKey() ? L"Stored sessionKey: configured" : L"Stored sessionKey: not configured",
+            WS_CHILD | WS_VISIBLE, 18, 43, 420, 20, window, nullptr, nullptr, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Paste the sessionKey value or full Cookie header from claude.ai:", WS_CHILD | WS_VISIBLE, 18, 70, 420, 20, window, nullptr, nullptr, nullptr);
+        CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | ES_PASSWORD,
+            18, 94, 328, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSessionKeyEdit)), nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Clear saved", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            354, 93, 92, 26, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearSessionKeyButton)), nullptr, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Leave this field blank to keep the current credential. Environment variables override it.", WS_CHILD | WS_VISIBLE,
+            18, 123, 428, 20, window, nullptr, nullptr, nullptr);
+
+        CreateWindowExW(0, L"STATIC", L"Quota:", WS_CHILD | WS_VISIBLE, 18, 160, 90, 22, window, nullptr, nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Remaining", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP | BS_AUTORADIOBUTTON,
+            112, 158, 110, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQuotaRemainingRadio)), nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Used", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+            230, 158, 80, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQuotaUsedRadio)), nullptr, nullptr);
+        CreateWindowExW(0, L"STATIC", L"Reset:", WS_CHILD | WS_VISIBLE, 18, 194, 90, 22, window, nullptr, nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Show reset info", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+            112, 192, 150, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kShowResetInfoCheckbox)), nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Countdown", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP | BS_AUTORADIOBUTTON,
+            112, 222, 110, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kResetCountdownRadio)), nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Reset time", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON,
+            230, 222, 110, 24, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kResetTimeRadio)), nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Save", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+            260, 272, 88, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSaveButton)), nullptr, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+            358, 272, 88, 30, window, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), nullptr, nullptr);
+
+        EnumChildWindows(window, [](HWND child, LPARAM value) -> BOOL {
+            SendMessageW(child, WM_SETFONT, static_cast<WPARAM>(value), TRUE);
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(font));
+        CheckRadioButton(window, kQuotaRemainingRadio, kQuotaUsedRadio,
+            state->config.display.quota_display == claudequota::QuotaDisplayMode::Used ? kQuotaUsedRadio : kQuotaRemainingRadio);
+        CheckRadioButton(window, kResetCountdownRadio, kResetTimeRadio,
+            state->config.display.reset_display == claudequota::ResetDisplayMode::Time ? kResetTimeRadio : kResetCountdownRadio);
+        SendMessageW(GetDlgItem(window, kShowResetInfoCheckbox), BM_SETCHECK,
+            state->config.display.show_reset_info ? BST_CHECKED : BST_UNCHECKED, 0);
+        EnableWindow(GetDlgItem(window, kResetCountdownRadio), state->config.display.show_reset_info);
+        EnableWindow(GetDlgItem(window, kResetTimeRadio), state->config.display.show_reset_info);
+        SetFocus(GetDlgItem(window, kSessionKeyEdit));
+        return 0;
+    }
+    case WM_COMMAND:
+        if (state == nullptr)
+        {
+            break;
+        }
+        switch (LOWORD(w_param))
+        {
+        case kClearSessionKeyButton:
+            SetWindowTextW(GetDlgItem(window, kSessionKeyEdit), L"");
+            state->credential_action = CredentialAction::Delete;
+            return 0;
+        case kShowResetInfoCheckbox:
+        {
+            const bool enabled = IsDlgButtonChecked(window, kShowResetInfoCheckbox) == BST_CHECKED;
+            EnableWindow(GetDlgItem(window, kResetCountdownRadio), enabled);
+            EnableWindow(GetDlgItem(window, kResetTimeRadio), enabled);
+            return 0;
+        }
+        case kSaveButton:
+        {
+            CaptureDisplayOptions(window, *state);
+            const HWND edit = GetDlgItem(window, kSessionKeyEdit);
+            const int length = GetWindowTextLengthW(edit);
+            if (length > 0)
+            {
+                std::wstring value(static_cast<size_t>(length + 1), L'\0');
+                GetWindowTextW(edit, value.data(), length + 1);
+                value.resize(static_cast<size_t>(length));
+                state->session_key_input = value;
+                state->credential_action = CredentialAction::Save;
+            }
+            state->accepted = true;
+            DestroyWindow(window);
+            return 0;
+        }
+        case IDCANCEL:
+            DestroyWindow(window);
+            return 0;
+        default:
+            break;
+        }
+        break;
+    case WM_CLOSE:
+        DestroyWindow(window);
+        return 0;
+    default:
+        break;
+    }
+    return DefWindowProcW(window, message, w_param, l_param);
+}
+
+bool ShowOptionsDialog(HWND parent, OptionsDialogState& state)
+{
+    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    WNDCLASSW window_class{};
+    window_class.lpfnWndProc = OptionsDialogProc;
+    window_class.hInstance = instance;
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    window_class.lpszClassName = kOptionsDialogClassName;
+    if (!RegisterClassW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+    {
+        return false;
+    }
+
+    HWND window = CreateWindowExW(
+        WS_EX_CONTROLPARENT | WS_EX_DLGMODALFRAME,
+        kOptionsDialogClassName,
+        L"TrafficMonitor Claude Quota",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        480,
+        350,
+        parent,
+        nullptr,
+        instance,
+        &state);
+    if (window == nullptr)
+    {
+        return false;
+    }
+
+    CenterWindow(window, parent);
+    const BOOL disable_parent = parent != nullptr && IsWindow(parent) && IsWindowEnabled(parent);
+    if (disable_parent)
+    {
+        EnableWindow(parent, FALSE);
+    }
+    ShowWindow(window, SW_SHOW);
+    UpdateWindow(window);
+    MSG message{};
+    while (IsWindow(window))
+    {
+        const BOOL got_message = GetMessageW(&message, nullptr, 0, 0);
+        if (got_message <= 0)
+        {
+            break;
+        }
+        if (!IsDialogMessageW(window, &message))
+        {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    if (disable_parent)
+    {
+        EnableWindow(parent, TRUE);
+        SetActiveWindow(parent);
+    }
+    return state.accepted;
+}
+
+std::wstring BuildSampleText(WindowKind kind, const claudequota::DisplayOptions& options)
+{
+    std::wstring sample = L" 100%";
+    if (!options.show_reset_info)
+    {
+        return sample;
+    }
+    if (options.reset_display == claudequota::ResetDisplayMode::Time)
+    {
+        return sample + L" 12-31 23:59";
+    }
+    switch (kind)
+    {
+    case WindowKind::FiveHour: return sample + L" 4h 59m";
+    case WindowKind::Weekly: return sample + L" 6d 23h";
+    case WindowKind::Monthly: return sample + L" 4w 3d";
+    }
+    return sample;
+}
+
+class ClaudeQuotaPlugin;
+
+class ClaudeQuotaItem final : public IPluginItem
+{
+public:
+    explicit ClaudeQuotaItem(WindowKind kind) : m_kind(kind) {}
+
+    const wchar_t* GetItemName() const override
+    {
+        switch (m_kind)
+        {
+        case WindowKind::FiveHour: return L"TrafficMonitor Claude 5h";
+        case WindowKind::Weekly: return L"TrafficMonitor Claude Week";
+        case WindowKind::Monthly: return L"TrafficMonitor Claude Month";
+        }
+        return L"TrafficMonitor Claude Quota";
+    }
+
+    const wchar_t* GetItemId() const override
+    {
+        switch (m_kind)
+        {
+        case WindowKind::FiveHour: return L"ClaudeQuota5h";
+        case WindowKind::Weekly: return L"ClaudeQuotaWeek";
+        case WindowKind::Monthly: return L"ClaudeQuotaMonth";
+        }
+        return L"ClaudeQuota";
+    }
+
+    const wchar_t* GetItemLableText() const override
+    {
+        switch (m_kind)
+        {
+        case WindowKind::FiveHour: return L"CL 5h:";
+        case WindowKind::Weekly: return L"CL 7d:";
+        case WindowKind::Monthly: return L"CL 1mo:";
+        }
+        return L"CL:";
+    }
+
+    const wchar_t* GetItemValueText() const override;
+    const wchar_t* GetItemValueSampleText() const override;
+    int IsDrawResourceUsageGraph() const override { return 1; }
+    float GetResourceUsageGraphValue() const override;
+
+private:
+    WindowKind m_kind;
+    mutable std::wstring m_value;
+    mutable std::wstring m_sample;
+};
+
+class ClaudeQuotaPlugin final : public ITMPlugin
+{
+public:
+    static ClaudeQuotaPlugin& Instance()
+    {
+        static ClaudeQuotaPlugin instance;
+        return instance;
+    }
+
+    IPluginItem* GetItem(int index) override
+    {
+        switch (index)
+        {
+        case 0: return &m_five_hour_item;
+        case 1: return &m_weekly_item;
+        case 2: return &m_monthly_item;
+        default: return nullptr;
+        }
+    }
+
+    void DataRequired() override
+    {
+        const auto now = std::chrono::steady_clock::now();
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_refreshing || now < m_next_refresh)
+            {
+                return;
+            }
+            m_refreshing = true;
+        }
+        if (m_worker.joinable())
+        {
+            m_worker.join();
+        }
+        m_worker = std::thread([] {
+            ClaudeQuotaPlugin::Instance().ApplyFetchResult(claudequota::FetchUsageSnapshot());
+        });
+    }
+
+    const wchar_t* GetInfo(PluginInfoIndex index) override
+    {
+        switch (index)
+        {
+        case TMI_NAME: return L"TrafficMonitor Claude Quota";
+        case TMI_DESCRIPTION: return L"Displays remaining Claude 5-hour, weekly, and monthly spend-limit quota in TrafficMonitor.";
+        case TMI_AUTHOR: return L"zhangxinxu";
+        case TMI_COPYRIGHT: return L"MIT";
+        case TMI_VERSION: return kTrafficMonitorQuotaPluginVersion;
+        case TMI_URL: return L"https://github.com/zhangxinxu1992/trafficmonitor-agent-quota-plugins";
+        default: return L"";
+        }
+    }
+
+    const wchar_t* GetTooltipInfo() override
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_tooltip_return = BuildTooltipLocked();
+        return m_tooltip_return.c_str();
+    }
+
+    OptionReturn ShowOptionsDialog(void* hParent) override
+    {
+        const auto parent = static_cast<HWND>(hParent);
+        std::wstring error;
+        const auto config = LoadConfig(error);
+        if (!config.has_value())
+        {
+            MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
+            return OR_OPTION_UNCHANGED;
+        }
+
+        OptionsDialogState state;
+        state.original_config = *config;
+        state.config = *config;
+        if (!::ShowOptionsDialog(parent, state))
+        {
+            return OR_OPTION_UNCHANGED;
+        }
+
+        if (state.credential_action == CredentialAction::Save
+            && !claudequota::WriteStoredSessionKey(state.session_key_input, error))
+        {
+            MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
+            return OR_OPTION_UNCHANGED;
+        }
+        if (state.credential_action == CredentialAction::Delete
+            && !claudequota::DeleteStoredSessionKey(error))
+        {
+            MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
+            return OR_OPTION_UNCHANGED;
+        }
+
+        const bool config_changed = !SameDisplayOptions(state.config.display, state.original_config.display);
+        if (config_changed && !SaveConfig(state.config, error))
+        {
+            MessageBoxW(parent, error.c_str(), L"TrafficMonitor Claude Quota", MB_OK | MB_ICONERROR);
+            return OR_OPTION_UNCHANGED;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_config = state.config;
+            if (state.credential_action != CredentialAction::None)
+            {
+                m_next_refresh = {};
+                m_has_usage = false;
+                m_last_error.clear();
+            }
+        }
+        return config_changed || state.credential_action != CredentialAction::None
+            ? OR_OPTION_CHANGED
+            : OR_OPTION_UNCHANGED;
+    }
+
+    std::wstring ValueText(WindowKind kind) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto* window = SelectWindow(kind);
+        if (m_has_usage && window != nullptr && window->present)
+        {
+            return L" " + claudequota::FormatWindowText(window->used_percent, window->reset_at, std::time(nullptr), m_config.display);
+        }
+        if (m_has_usage)
+        {
+            return L" N/A";
+        }
+        return m_last_error.empty() ? L" ..." : L" ERR";
+    }
+
+    std::wstring SampleText(WindowKind kind) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return BuildSampleText(kind, m_config.display);
+    }
+
+    float ResourceGraphValue(WindowKind kind) const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const auto* window = SelectWindow(kind);
+        return m_has_usage && window != nullptr && window->present
+            ? claudequota::FormatResourceGraphValue(window->used_percent, m_config.display)
+            : 0.0f;
+    }
+
+private:
+    ClaudeQuotaPlugin()
+        : m_five_hour_item(WindowKind::FiveHour),
+          m_weekly_item(WindowKind::Weekly),
+          m_monthly_item(WindowKind::Monthly)
+    {
+        std::wstring error;
+        if (const auto config = LoadConfig(error))
+        {
+            m_config = *config;
+        }
+    }
+
+    ~ClaudeQuotaPlugin()
+    {
+        if (m_worker.joinable())
+        {
+            m_worker.join();
+        }
+    }
+
+    const claudequota::RateWindow* SelectWindow(WindowKind kind) const
+    {
+        if (!m_has_usage)
+        {
+            return nullptr;
+        }
+        switch (kind)
+        {
+        case WindowKind::FiveHour: return &m_usage.primary;
+        case WindowKind::Weekly: return &m_usage.secondary;
+        case WindowKind::Monthly: return &m_usage.monthly;
+        }
+        return nullptr;
+    }
+
+    void ApplyFetchResult(const claudequota::FetchResult& result)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_refreshing = false;
+        m_last_refresh = std::time(nullptr);
+        if (result.success)
+        {
+            m_usage = result.usage;
+            m_has_usage = true;
+            m_last_error.clear();
+            m_next_refresh = std::chrono::steady_clock::now() + std::chrono::minutes(5);
+        }
+        else
+        {
+            m_last_error = result.error.empty() ? L"Unknown Claude usage error." : result.error;
+            m_next_refresh = std::chrono::steady_clock::now() + std::chrono::minutes(1);
+        }
+    }
+
+    std::wstring WindowLineLocked(const wchar_t* title, const claudequota::RateWindow& window) const
+    {
+        if (!window.present)
+        {
+            return std::wstring(title) + L": unavailable";
+        }
+        std::wstring line = std::wstring(title) + L": "
+            + claudequota::FormatWindowText(window.used_percent, 0, std::time(nullptr), m_config.display);
+        line += m_config.display.quota_display == claudequota::QuotaDisplayMode::Used ? L" used" : L" remaining";
+        if (window.reset_at > 0)
+        {
+            line += m_config.display.reset_display == claudequota::ResetDisplayMode::Time ? L", resets at " : L", resets in ";
+            line += m_config.display.reset_display == claudequota::ResetDisplayMode::Time
+                ? claudequota::FormatResetTime(window.reset_at, std::time(nullptr))
+                : claudequota::FormatResetCountdown(window.reset_at, std::time(nullptr));
+        }
+        return line;
+    }
+
+    std::wstring BuildTooltipLocked() const
+    {
+        std::wstring tooltip = L"TrafficMonitor Claude quota";
+        if (!m_usage.plan_type.empty())
+        {
+            tooltip += L" (" + m_usage.plan_type + L")";
+        }
+        tooltip += L"\n";
+        if (m_has_usage)
+        {
+            tooltip += WindowLineLocked(L"5h", m_usage.primary) + L"\n";
+            tooltip += WindowLineLocked(L"Week", m_usage.secondary) + L"\n";
+            tooltip += WindowLineLocked(L"Month", m_usage.monthly);
+        }
+        else if (m_refreshing)
+        {
+            tooltip += L"Refreshing...";
+        }
+        else
+        {
+            tooltip += L"Waiting for first refresh.";
+        }
+        if (m_last_refresh > 0)
+        {
+            tooltip += m_last_error.empty() ? L"\nLast refresh: OK" : L"\nLast refresh: failed";
+        }
+        if (!m_last_error.empty())
+        {
+            tooltip += L"\nError: " + m_last_error;
+        }
+        return tooltip;
+    }
+
+    ClaudeQuotaItem m_five_hour_item;
+    ClaudeQuotaItem m_weekly_item;
+    ClaudeQuotaItem m_monthly_item;
+    mutable std::mutex m_mutex;
+    claudequota::UsageSnapshot m_usage;
+    claudequota::PluginConfig m_config;
+    bool m_has_usage{};
+    bool m_refreshing{};
+    std::time_t m_last_refresh{};
+    std::chrono::steady_clock::time_point m_next_refresh{};
+    std::thread m_worker;
+    std::wstring m_last_error;
+    std::wstring m_tooltip_return;
+};
+
+const wchar_t* ClaudeQuotaItem::GetItemValueText() const
+{
+    m_value = ClaudeQuotaPlugin::Instance().ValueText(m_kind);
+    return m_value.c_str();
+}
+
+const wchar_t* ClaudeQuotaItem::GetItemValueSampleText() const
+{
+    m_sample = ClaudeQuotaPlugin::Instance().SampleText(m_kind);
+    return m_sample.c_str();
+}
+
+float ClaudeQuotaItem::GetResourceUsageGraphValue() const
+{
+    return ClaudeQuotaPlugin::Instance().ResourceGraphValue(m_kind);
+}
+}
+
+extern "C" __declspec(dllexport) ITMPlugin* TMPluginGetInstance()
+{
+    return &ClaudeQuotaPlugin::Instance();
+}
