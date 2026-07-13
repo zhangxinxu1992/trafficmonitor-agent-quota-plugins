@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added a `CX 1mo:` TrafficMonitor item for the monthly workspace spend-control quota returned by Codex Business and Enterprise accounts.
+- Added parser, smoke-test, and live-test coverage for accounts whose usage response has no 5-hour or 7-day rate-limit windows.
+
+### Changed
+
+- Unavailable Codex quota items now show `N/A` after a successful refresh instead of continuing to show a loading placeholder.
+- Codex quota requests now honor `HTTPS_PROXY` and `HTTP_PROXY`, allowing live refreshes on company networks that require an explicit proxy.
+
 ## v1.5
 
 ### Fixed

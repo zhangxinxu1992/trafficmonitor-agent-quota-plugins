@@ -75,6 +75,18 @@ std::wstring GetEnvVar(const wchar_t* name)
     return value;
 }
 
+std::wstring GetEnvironmentProxy()
+{
+    for (const auto* name : {L"HTTPS_PROXY", L"HTTP_PROXY"})
+    {
+        if (const auto proxy = codexquota::NormalizeProxyUrl(GetEnvVar(name)))
+        {
+            return *proxy;
+        }
+    }
+    return {};
+}
+
 std::wstring JoinPath(std::wstring base, const wchar_t* child)
 {
     if (!base.empty() && base.back() != L'\\' && base.back() != L'/')
@@ -267,10 +279,14 @@ FetchResult FetchUsageSnapshot()
     }
 
     const auto user_agent = L"TrafficMonitorCodexQuota/" + std::wstring(kTrafficMonitorQuotaPluginVersion);
+    const auto environment_proxy = GetEnvironmentProxy();
+    const auto access_type = environment_proxy.empty()
+        ? WINHTTP_ACCESS_TYPE_DEFAULT_PROXY
+        : WINHTTP_ACCESS_TYPE_NAMED_PROXY;
     HttpHandle session(WinHttpOpen(
         user_agent.c_str(),
-        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-        WINHTTP_NO_PROXY_NAME,
+        access_type,
+        environment_proxy.empty() ? WINHTTP_NO_PROXY_NAME : environment_proxy.c_str(),
         WINHTTP_NO_PROXY_BYPASS,
         0));
     if (session.value == nullptr)

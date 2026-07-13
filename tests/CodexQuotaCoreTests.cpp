@@ -64,6 +64,20 @@ void TestRejectsMissingCredentials()
     Check(!error.empty(), "missing access token should explain failure");
 }
 
+void TestNormalizesEnvironmentProxy()
+{
+    Check(codexquota::NormalizeProxyUrl(L" http://proxy.example:3128/ ") == L"proxy.example:3128",
+        "HTTP proxy URL should normalize to a WinHTTP proxy name");
+    Check(codexquota::NormalizeProxyUrl(L"HTTPS://proxy.example:8443") == L"proxy.example:8443",
+        "HTTPS proxy URL normalization should be case insensitive");
+    Check(codexquota::NormalizeProxyUrl(L"proxy.example:3128") == L"proxy.example:3128",
+        "bare proxy name should be preserved");
+    Check(!codexquota::NormalizeProxyUrl(L"socks5://proxy.example:1080").has_value(),
+        "unsupported proxy scheme should be rejected");
+    Check(!codexquota::NormalizeProxyUrl(L"http://user:password@proxy.example:3128").has_value(),
+        "proxy credentials should not be accepted in environment URLs");
+}
+
 void TestParsesUsageWindows()
 {
     std::wstring error;
@@ -102,6 +116,83 @@ void TestParsesUsageWindows()
     Check(usage->secondary.limit_window_seconds == 604800, "secondary window seconds should parse");
     Check(usage->secondary.reset_at == 1782363780, "secondary reset_at should parse");
     Check(error.empty(), "successful usage parse should not set error");
+}
+
+void TestParsesBusinessMonthlySpendControl()
+{
+    std::wstring error;
+    const auto usage = codexquota::ParseUsageJson(
+        R"({
+            "plan_type": "business",
+            "rate_limit": null,
+            "additional_rate_limits": null,
+            "credits": {
+                "has_credits": true,
+                "unlimited": false,
+                "balance": null
+            },
+            "spend_control": {
+                "reached": false,
+                "individual_limit": {
+                    "source": "workspace_spend_controls",
+                    "limit": "12500",
+                    "used": "375",
+                    "remaining": "12125",
+                    "used_percent": 3,
+                    "remaining_percent": 97,
+                    "reset_after_seconds": 1610856,
+                    "reset_at": 1785542400
+                }
+            }
+        })",
+        error);
+
+    Check(usage.has_value(), "business monthly usage JSON should parse");
+    Check(usage->plan_type == L"business", "business plan_type should parse");
+    Check(!usage->primary.present, "business response should not invent a 5h window");
+    Check(!usage->secondary.present, "business response should not invent a weekly window");
+    Check(usage->monthly.present, "business spend control should create a monthly window");
+    Check(usage->monthly.used_percent == 3.0, "business monthly used percent should parse");
+    Check(usage->monthly.reset_at == 1785542400, "business monthly reset_at should parse");
+    Check(error.empty(), "successful business monthly parse should not set error");
+}
+
+void TestDerivesBusinessMonthlyPercent()
+{
+    std::wstring error;
+    const auto from_remaining = codexquota::ParseUsageJson(
+        R"({
+            "plan_type": "enterprise",
+            "spend_control": {
+                "individual_limit": {
+                    "remaining_percent": "75",
+                    "reset_at": 1785542400
+                }
+            }
+        })",
+        error);
+
+    Check(from_remaining.has_value(), "business monthly usage should derive percent from remaining percent");
+    Check(from_remaining->monthly.used_percent == 25.0,
+        "business monthly used percent should derive from remaining percent");
+
+    error.clear();
+    const auto from_amounts = codexquota::ParseUsageJson(
+        R"({
+            "plan_type": "enterprise",
+            "spend_control": {
+                "individual_limit": {
+                    "limit": "2000",
+                    "used": "500",
+                    "reset_at": 1785542400
+                }
+            }
+        })",
+        error);
+
+    Check(from_amounts.has_value(), "business monthly usage should derive percent from amounts");
+    Check(from_amounts->monthly.used_percent == 25.0,
+        "business monthly percent should derive from used and limit");
 }
 
 void TestFormatsUsedPercent()
@@ -229,8 +320,12 @@ void TestLiveFetchWhenRequested()
         std::wcerr << L"LIVE ERROR: " << result.error << L" status=" << result.http_status << L'\n';
     }
     Check(result.success, "live Codex usage fetch should succeed when requested");
-    Check(result.usage.primary.present, "live Codex usage should include primary window");
-    Check(result.usage.secondary.present, "live Codex usage should include secondary window");
+    Check(result.usage.primary.present || result.usage.monthly.present,
+        "live Codex usage should include a primary or monthly window");
+    if (result.usage.plan_type == L"business" || result.usage.plan_type == L"enterprise")
+    {
+        Check(result.usage.monthly.present, "live company Codex usage should include monthly spend control");
+    }
 }
 }
 
@@ -239,7 +334,10 @@ int main()
     TestParsesTokenCredentials();
     TestPrefersOpenAiApiKey();
     TestRejectsMissingCredentials();
+    TestNormalizesEnvironmentProxy();
     TestParsesUsageWindows();
+    TestParsesBusinessMonthlySpendControl();
+    TestDerivesBusinessMonthlyPercent();
     TestFormatsUsedPercent();
     TestFormatsRemainingPercent();
     TestFormatsRemainingWindowText();

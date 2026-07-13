@@ -19,7 +19,8 @@ namespace
 enum class WindowKind
 {
     FiveHour,
-    Weekly
+    Weekly,
+    Monthly
 };
 
 constexpr int kQuotaRemainingRadio = 2001;
@@ -608,7 +609,18 @@ std::wstring BuildCodexSampleText(WindowKind kind, const codexquota::DisplayOpti
         return sample;
     }
 
-    sample += kind == WindowKind::FiveHour ? L" 4h 59m" : L" 6d 23h";
+    switch (kind)
+    {
+    case WindowKind::FiveHour:
+        sample += L" 4h 59m";
+        break;
+    case WindowKind::Weekly:
+        sample += L" 6d 23h";
+        break;
+    case WindowKind::Monthly:
+        sample += L" 4w 3d";
+        break;
+    }
     return sample;
 }
 
@@ -619,17 +631,44 @@ public:
 
     const wchar_t* GetItemName() const override
     {
-        return m_kind == WindowKind::FiveHour ? L"TrafficMonitor Codex 5h" : L"TrafficMonitor Codex Week";
+        switch (m_kind)
+        {
+        case WindowKind::FiveHour:
+            return L"TrafficMonitor Codex 5h";
+        case WindowKind::Weekly:
+            return L"TrafficMonitor Codex Week";
+        case WindowKind::Monthly:
+            return L"TrafficMonitor Codex Month";
+        }
+        return L"TrafficMonitor Codex Quota";
     }
 
     const wchar_t* GetItemId() const override
     {
-        return m_kind == WindowKind::FiveHour ? L"CodexQuota5h" : L"CodexQuotaWeek";
+        switch (m_kind)
+        {
+        case WindowKind::FiveHour:
+            return L"CodexQuota5h";
+        case WindowKind::Weekly:
+            return L"CodexQuotaWeek";
+        case WindowKind::Monthly:
+            return L"CodexQuotaMonth";
+        }
+        return L"CodexQuota";
     }
 
     const wchar_t* GetItemLableText() const override
     {
-        return m_kind == WindowKind::FiveHour ? L"CX 5h:" : L"CX 7d:";
+        switch (m_kind)
+        {
+        case WindowKind::FiveHour:
+            return L"CX 5h:";
+        case WindowKind::Weekly:
+            return L"CX 7d:";
+        case WindowKind::Monthly:
+            return L"CX 1mo:";
+        }
+        return L"CX:";
     }
 
     const wchar_t* GetItemValueText() const override;
@@ -666,6 +705,8 @@ public:
             return &m_five_hour_item;
         case 1:
             return &m_weekly_item;
+        case 2:
+            return &m_monthly_item;
         default:
             return nullptr;
         }
@@ -702,7 +743,7 @@ public:
         case TMI_NAME:
             return L"TrafficMonitor Codex Quota";
         case TMI_DESCRIPTION:
-            return L"Displays remaining Codex 5-hour and weekly quota percentage in TrafficMonitor.";
+            return L"Displays remaining Codex 5-hour, weekly, and monthly quota percentage in TrafficMonitor.";
         case TMI_AUTHOR:
             return L"zhangxinxu";
         case TMI_COPYRIGHT:
@@ -761,6 +802,11 @@ public:
             return L" " + codexquota::FormatWindowText(window->used_percent, window->reset_at, std::time(nullptr), m_config.display);
         }
 
+        if (m_has_usage)
+        {
+            return L" N/A";
+        }
+
         if (m_last_error.empty())
         {
             return L" ...";
@@ -788,7 +834,8 @@ public:
 private:
     CodexQuotaPlugin()
         : m_five_hour_item(WindowKind::FiveHour),
-          m_weekly_item(WindowKind::Weekly)
+          m_weekly_item(WindowKind::Weekly),
+          m_monthly_item(WindowKind::Monthly)
     {
         std::wstring error;
         if (const auto config = LoadCodexConfig(error))
@@ -812,7 +859,16 @@ private:
         {
             return nullptr;
         }
-        return kind == WindowKind::FiveHour ? &m_usage.primary : &m_usage.secondary;
+        switch (kind)
+        {
+        case WindowKind::FiveHour:
+            return &m_usage.primary;
+        case WindowKind::Weekly:
+            return &m_usage.secondary;
+        case WindowKind::Monthly:
+            return &m_usage.monthly;
+        }
+        return nullptr;
     }
 
     void ApplyFetchResult(const codexquota::FetchResult& result)
@@ -873,6 +929,8 @@ private:
             tooltip += WindowLineLocked(L"5h", m_usage.primary);
             tooltip += L"\n";
             tooltip += WindowLineLocked(L"Week", m_usage.secondary);
+            tooltip += L"\n";
+            tooltip += WindowLineLocked(L"Month", m_usage.monthly);
         }
         else if (m_refreshing)
         {
@@ -898,6 +956,7 @@ private:
 
     CodexQuotaItem m_five_hour_item;
     CodexQuotaItem m_weekly_item;
+    CodexQuotaItem m_monthly_item;
 
     mutable std::mutex m_mutex;
     codexquota::UsageSnapshot m_usage;

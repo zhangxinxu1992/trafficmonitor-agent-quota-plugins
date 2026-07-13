@@ -24,6 +24,7 @@ struct UsageSnapshot
     std::wstring plan_type;
     RateWindow primary;
     RateWindow secondary;
+    RateWindow monthly;
 };
 
 enum class QuotaDisplayMode
@@ -53,6 +54,7 @@ struct PluginConfig
 std::optional<Credentials> ParseCredentialsJson(const std::wstring& json, std::wstring& error);
 std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstring& error);
 std::optional<PluginConfig> ParseConfigJson(const std::wstring& json, std::wstring& error);
+std::optional<std::wstring> NormalizeProxyUrl(const std::wstring& value);
 std::wstring SerializeConfigJson(const PluginConfig& config);
 
 std::wstring FormatPercent(double used_percent);
