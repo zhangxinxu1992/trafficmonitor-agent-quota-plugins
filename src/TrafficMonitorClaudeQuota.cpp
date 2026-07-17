@@ -928,7 +928,9 @@ private:
         else
         {
             m_last_error = result.error.empty() ? L"Unknown Claude usage error." : result.error;
-            m_next_refresh = std::chrono::steady_clock::now() + std::chrono::minutes(1);
+            const auto server_delay = static_cast<long long>(result.retry_after_seconds) + 1;
+            const auto retry_seconds = server_delay > 60 ? server_delay : 60;
+            m_next_refresh = std::chrono::steady_clock::now() + std::chrono::seconds(retry_seconds);
         }
     }
 

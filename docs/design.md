@@ -67,12 +67,17 @@ The Claude plugin uses Claude Code OAuth as its only authentication and data
 source:
 
 1. Read `%USERPROFILE%\.claude\.credentials.json`.
-2. Parse `accessToken` and `rateLimitTier` only from the `claudeAiOauth` object;
-   unrelated `mcpOAuth` tokens must never be selected.
-3. Send `GET https://api.anthropic.com/api/oauth/usage` with the
+2. Parse OAuth tokens, expiry, scopes, client ID, and `rateLimitTier` only from
+   the `claudeAiOauth` object; unrelated `mcpOAuth` tokens must never be selected.
+3. When the access token expires within five minutes, refresh it through
+   `POST https://platform.claude.com/v1/oauth/token` using the same request shape
+   as Claude Code. Persist rotated tokens and expiry atomically without changing
+   unrelated credential objects. A usage response of HTTP 401 triggers at most
+   one refresh and one retry.
+4. Send `GET https://api.anthropic.com/api/oauth/usage` with the
    `anthropic-beta: oauth-2025-04-20` header.
-4. Parse `five_hour` and `seven_day` utilization/reset windows.
-5. Parse the embedded `extra_usage` monthly limit and used credits. When the
+5. Parse `five_hour` and `seven_day` utilization/reset windows.
+6. Parse the embedded `extra_usage` monthly limit and used credits. When the
    response has no explicit reset timestamp, use the next UTC calendar-month
    boundary; this displays as 08:00 in GMT+8.
 
@@ -108,6 +113,8 @@ in Claude Code's own credentials file.
 `ITMPlugin::DataRequired()` must not block TrafficMonitor on network I/O. It starts a background refresh when the cached snapshot is stale and no refresh is already running.
 
 The refresh interval is five minutes after a successful fetch and one minute after an error.
+When an HTTP 429 response includes `Retry-After`, the next attempt waits at least
+that long rather than using the one-minute error interval.
 
 The display item value is:
 

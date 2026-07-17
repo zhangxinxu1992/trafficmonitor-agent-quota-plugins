@@ -191,6 +191,85 @@ std::optional<double> FindJsonDouble(const std::string& json, const std::string&
     }
 }
 
+std::optional<long long> FindJsonLongLong(const std::string& json, const std::string& key)
+{
+    const auto value = FindJsonScalarText(json, key);
+    if (!value.has_value())
+    {
+        return std::nullopt;
+    }
+    try
+    {
+        size_t parsed = 0;
+        const auto result = std::stoll(*value, &parsed);
+        return parsed == value->size() ? std::optional<long long>(result) : std::nullopt;
+    }
+    catch (...)
+    {
+        return std::nullopt;
+    }
+}
+
+std::vector<std::wstring> FindJsonStringArray(const std::string& json, const std::string& key)
+{
+    std::vector<std::wstring> values;
+    const auto key_pos = json.find("\"" + key + "\"");
+    if (key_pos == std::string::npos)
+    {
+        return values;
+    }
+    const auto colon_pos = json.find(':', key_pos + key.size() + 2);
+    auto position = colon_pos == std::string::npos
+        ? std::string::npos
+        : json.find_first_not_of(" \t\r\n", colon_pos + 1);
+    if (position == std::string::npos || json[position] != '[')
+    {
+        return values;
+    }
+
+    ++position;
+    while (position < json.size())
+    {
+        position = json.find_first_not_of(" \t\r\n,", position);
+        if (position == std::string::npos || json[position] == ']')
+        {
+            return values;
+        }
+        if (json[position] != '"')
+        {
+            return {};
+        }
+
+        const auto value_start = position++;
+        bool escaped = false;
+        while (position < json.size())
+        {
+            if (escaped)
+            {
+                escaped = false;
+            }
+            else if (json[position] == '\\')
+            {
+                escaped = true;
+            }
+            else if (json[position] == '"')
+            {
+                const auto encoded = json.substr(value_start, position - value_start + 1);
+                const auto parsed = FindJsonStringValue("{\"value\":" + encoded + "}", "value");
+                if (!parsed.has_value())
+                {
+                    return {};
+                }
+                values.push_back(Utf8ToWide(*parsed));
+                ++position;
+                break;
+            }
+            ++position;
+        }
+    }
+    return {};
+}
+
 std::optional<bool> FindJsonBool(const std::string& json, const std::string& key)
 {
     const auto value = FindJsonScalarText(json, key);
@@ -318,11 +397,44 @@ std::optional<OAuthCredentials> ParseOAuthCredentialsJson(const std::string& jso
 
     OAuthCredentials credentials;
     credentials.access_token = Utf8ToWide(Trim(*access_token));
+    if (const auto refresh_token = FindJsonStringValue(*claude_oauth, "refreshToken"))
+    {
+        credentials.refresh_token = Utf8ToWide(Trim(*refresh_token));
+    }
+    if (const auto client_id = FindJsonStringValue(*claude_oauth, "clientId"))
+    {
+        credentials.client_id = Utf8ToWide(Trim(*client_id));
+    }
+    credentials.scopes = FindJsonStringArray(*claude_oauth, "scopes");
+    credentials.expires_at_ms = FindJsonLongLong(*claude_oauth, "expiresAt").value_or(0);
+    credentials.refresh_token_expires_at_ms = FindJsonLongLong(*claude_oauth, "refreshTokenExpiresAt").value_or(0);
     if (const auto tier = FindJsonStringValue(*claude_oauth, "rateLimitTier"))
     {
         credentials.rate_limit_tier = Utf8ToWide(Trim(*tier));
     }
     return credentials;
+}
+
+std::optional<OAuthTokenResponse> ParseOAuthTokenResponseJson(const std::string& json, std::wstring& error)
+{
+    error.clear();
+    const auto access_token = FindJsonStringValue(json, "access_token");
+    const auto expires_in = FindJsonLongLong(json, "expires_in");
+    if (!access_token.has_value() || Trim(*access_token).empty() || !expires_in.has_value() || *expires_in <= 0)
+    {
+        error = L"Claude OAuth token response was invalid.";
+        return std::nullopt;
+    }
+
+    OAuthTokenResponse response;
+    response.access_token = Utf8ToWide(Trim(*access_token));
+    response.expires_in_seconds = *expires_in;
+    if (const auto refresh_token = FindJsonStringValue(json, "refresh_token"))
+    {
+        response.refresh_token = Utf8ToWide(Trim(*refresh_token));
+    }
+    response.refresh_token_expires_in_seconds = FindJsonLongLong(json, "refresh_token_expires_in").value_or(0);
+    return response;
 }
 
 std::optional<UsageSnapshot> ParseUsageJson(const std::string& json, std::wstring& error)

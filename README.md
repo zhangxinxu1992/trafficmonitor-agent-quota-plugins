@@ -94,6 +94,9 @@ For Claude quota, install Claude Code and authenticate with `claude auth login`.
 The plugin reads the `claudeAiOauth` credentials from
 `~/.claude/.credentials.json` and calls Claude Code's OAuth usage endpoint,
 including its Enterprise `extra_usage` monthly spend-limit fields. When the
+access token is expiring, the plugin uses Claude Code's saved refresh token and
+atomically updates only the `claudeAiOauth` credentials. API rate limits honor
+the server's `Retry-After` delay instead of retrying every minute. When the
 plugin options are opened without a valid Claude Code login, the plugin offers
 to start `claude auth login` in a new console and opens the display settings only
 after authentication succeeds.
