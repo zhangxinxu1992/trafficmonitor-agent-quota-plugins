@@ -166,11 +166,18 @@ The Claude plugin is built as `TrafficMonitorClaudeQuota.dll` and exposes:
 - `ClaudeQuotaMonth` with label `CL 1mo:`
 
 The plugin uses Claude Code as its only authentication source. It reads
-`%USERPROFILE%\.claude\.credentials.json`, selects `accessToken` and
-`rateLimitTier` only from the `claudeAiOauth` object, and calls
+`%USERPROFILE%\.claude\.credentials.json`, selects OAuth tokens, expiry,
+scopes, client ID, and `rateLimitTier` only from the `claudeAiOauth` object, and calls
 `GET https://api.anthropic.com/api/oauth/usage` with
 `anthropic-beta: oauth-2025-04-20`. The parser deliberately ignores same-named
 fields inside `mcpOAuth`.
+
+When the access token expires within five minutes, the plugin mirrors Claude
+Code's refresh request to `POST https://platform.claude.com/v1/oauth/token`.
+It persists rotated tokens and expiry with an atomic replacement after checking
+that the credentials file has not changed concurrently. Only direct members of
+`claudeAiOauth` are updated; `mcpOAuth` and unknown fields are preserved. An
+HTTP 401 usage response causes at most one refresh and one usage retry.
 
 Opening Options checks for readable Claude Code OAuth credentials first. When
 they are missing, the plugin asks the user whether to start
@@ -275,6 +282,7 @@ Refresh cadence:
 
 - 5 minutes after a successful fetch.
 - 1 minute after an error.
+- At least the server-provided `Retry-After` delay after HTTP 429.
 
 The initial display value is ` ...`. Error display is ` ERR` unless a previous successful value can still be shown.
 
