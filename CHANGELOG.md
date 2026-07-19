@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.9
+
+### 修复
+
+- Claude Code OAuth access token 即将过期时，插件现在会使用已保存的 refresh token 主动续期；用量请求返回 HTTP 401 时最多刷新并重试一次。
+- 刷新后的 token 和过期时间会原子写回 `claudeAiOauth`，并在凭据文件发生并发变化时拒绝覆盖，不会改动 `mcpOAuth` 等无关对象。
+- Claude 用量接口返回 HTTP 429 时，下一次刷新会遵守服务端 `Retry-After`，不再固定每分钟重试。
+
+### 验证
+
+- 新增 OAuth 主动刷新、401 刷新重试、429 退避、凭据并发修改及写入失败等 fake transport 回归测试。
+- 通过 Claude Release x64 构建、单元测试、插件冒烟测试，以及过期 OAuth token 刷新与用量获取的本机实时验证。
+
+**完整变更记录**：https://github.com/zhangxinxu1992/trafficmonitor-agent-quota-plugins/compare/v1.8...v1.9
+
 ## v1.8
 
 ### 新增
